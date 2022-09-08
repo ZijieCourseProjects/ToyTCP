@@ -19,6 +19,7 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) $(FLAGS) -c -o $@ $<
 
 clean:
+	find . -type f | xargs -n 5 touch
 	-rm -f ./build/*.o client server
 
 server: $(OBJS)
