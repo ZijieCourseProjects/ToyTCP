@@ -1,4 +1,5 @@
 #include "kernel.h"
+#include "debug.h"
 /*
 模拟Linux内核收到一份TCP报文的处理函数
 */
@@ -20,6 +21,7 @@ void onTCPPocket(char* pkt){
     }
 
     int hashval;
+    //DEBUG_PRINT("local_ip %d local_port %d remote_ip %d remote_port %d\n", local_ip, local_port, remote_ip, remote_port);
     // 根据4个ip port 组成四元组 查找有没有已经建立连接的socket
     hashval = cal_hash(local_ip, local_port, remote_ip, remote_port);
 
@@ -89,7 +91,7 @@ void* receive_thread(void* arg){
     int len;
 
     struct sockaddr_in from_addr;
-    int from_addr_size = sizeof(from_addr);
+    socklen_t from_addr_size = sizeof(from_addr);
 
     while(1) {
         // MSG_PEEK 表示看一眼 不会把数据从缓冲区删除
@@ -128,7 +130,7 @@ void startSimulation(){
     // 获取hostname 
     char hostname[8];
     gethostname(hostname, 8);
-    // printf("startSimulation on hostname: %s\n", hostname);
+    DEBUG_PRINT("startSimulation on hostname: %s\n", hostname);
 
     BACKEND_UDPSOCKET_ID = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (BACKEND_UDPSOCKET_ID < 0){
@@ -152,7 +154,7 @@ void startSimulation(){
         exit(-1);
     }
 
-    pthread_t thread_id = 1001;
+    pthread_t thread_id = (pthread_t) 1001;
     int rst = pthread_create(&thread_id, NULL, receive_thread, (void*)(&BACKEND_UDPSOCKET_ID));
     if (rst<0){
         printf("ERROR open thread");
