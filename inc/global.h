@@ -25,6 +25,11 @@
 #define INIT_SERVER_SEQ 1895
 #define INIT_CLIENT_SEQ 1919
 
+//RTT CALCULATION
+#define RTT_ALPHA 0.125
+#define RTT_BETA 0.25
+#define INIT_RTT 0.5
+
 // 一些Flag
 #define NO_FLAG 0
 #define NO_WAIT 1

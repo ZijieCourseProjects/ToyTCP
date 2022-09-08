@@ -16,5 +16,4 @@
         fprintf(stderr, __VA_ARGS__);}             \
         } while (0)
 
-
 #endif //TJU_TCP_INC_DEBUG_H_

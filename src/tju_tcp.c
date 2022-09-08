@@ -1,7 +1,7 @@
 #include "tju_tcp.h"
 #include "global.h"
 
-static tju_tcp_t* connected_queue[512];
+static tju_tcp_t *connected_queue[512];
 static int connected_queue_pointer = 0;
 
 /*
@@ -61,7 +61,7 @@ int tju_listen(tju_tcp_t *sock) {
 因为只要该函数返回, 用户就可以马上使用该socket进行send和recv
 */
 tju_tcp_t *tju_accept(tju_tcp_t *listen_sock) {
-  while(connected_queue_pointer == 0){
+  while (connected_queue_pointer == 0) {
     sleep(1);
   }
   tju_tcp_t *new_conn = connected_queue[0];
@@ -102,8 +102,8 @@ int tju_connect(tju_tcp_t *sock, tju_sock_addr target_addr) {
   // 而状态的改变在别的地方进行 在我们这就是tju_handle_packet
   //SEND SYN
   char *msg = create_packet_buf(sock->established_local_addr.port, target_addr.port, INIT_CLIENT_SEQ, 0,
-                          DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, SYN_FLAG_MASK, 1, 0, NULL, 0);
-  sendToLayer3(msg,DEFAULT_HEADER_LEN);
+                                DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, SYN_FLAG_MASK, 1, 0, NULL, 0);
+  sendToLayer3(msg, DEFAULT_HEADER_LEN);
   sock->state = SYN_SENT;
   DEBUG_PRINT("SYN SENT\n");
   int hashval = cal_hash(local_addr.ip, local_addr.port, 0, 0);
@@ -187,37 +187,46 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
 
   switch (sock->state) {
     case LISTEN:
-      if(flag == SYN_FLAG_MASK){
+      if (flag == SYN_FLAG_MASK) {
         DEBUG_PRINT("SYN_FLAG RECEIVED\n");
         sock->state = SYN_RECV;
         //SEND SYN ACK
-        char *msg = create_packet_buf(dst_port, src_port, INIT_SERVER_SEQ, seq + 1,
-                                DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, SYN_FLAG_MASK | ACK_FLAG_MASK, 1, 0, NULL, 0);
-        sendToLayer3(msg,DEFAULT_HEADER_LEN);
+        char *msg = create_packet_buf(dst_port,
+                                      src_port,
+                                      INIT_SERVER_SEQ,
+                                      seq + 1,
+                                      DEFAULT_HEADER_LEN,
+                                      DEFAULT_HEADER_LEN,
+                                      SYN_FLAG_MASK | ACK_FLAG_MASK,
+                                      1,
+                                      0,
+                                      NULL,
+                                      0);
+        sendToLayer3(msg, DEFAULT_HEADER_LEN);
         DEBUG_PRINT("SYN_ACK SENT\n");
       }
       break;
     case SYN_SENT:
-        if(flag == (SYN_FLAG_MASK | ACK_FLAG_MASK)){
-            DEBUG_PRINT("SYN_ACK RECEIVED\n");
-            sock->state = ESTABLISHED;
+      if (flag == (SYN_FLAG_MASK | ACK_FLAG_MASK)) {
+        DEBUG_PRINT("SYN_ACK RECEIVED\n");
+        sock->state = ESTABLISHED;
 
-            //SEND ACK
-            char *msg = create_packet_buf(dst_port, src_port, ack, seq + 1,
-                                    DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, ACK_FLAG_MASK, 1, 0, NULL, 0);
-            sendToLayer3(msg,DEFAULT_HEADER_LEN);
-            DEBUG_PRINT("ACK SENT\n");
-        }
-        break;
+        //SEND ACK
+        char *msg = create_packet_buf(dst_port, src_port, ack, seq + 1,
+                                      DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, ACK_FLAG_MASK, 1, 0, NULL, 0);
+        sendToLayer3(msg, DEFAULT_HEADER_LEN);
+        DEBUG_PRINT("ACK SENT\n");
+      }
+      break;
     case SYN_RECV:
-        if(flag == ACK_FLAG_MASK){
-            DEBUG_PRINT("ACK RECEIVED\n");
-            new_conn = (tju_tcp_t *)malloc(sizeof(tju_tcp_t));
-            memcpy(new_conn,sock,sizeof(tju_tcp_t));
-            new_conn->state = ESTABLISHED;
-            connected_queue[connected_queue_pointer++] = new_conn;
-        }
-        break;
+      if (flag == ACK_FLAG_MASK) {
+        DEBUG_PRINT("ACK RECEIVED\n");
+        new_conn = (tju_tcp_t *) malloc(sizeof(tju_tcp_t));
+        memcpy(new_conn, sock, sizeof(tju_tcp_t));
+        new_conn->state = ESTABLISHED;
+        connected_queue[connected_queue_pointer++] = new_conn;
+      }
+      break;
   }
   if (sock->received_buf == NULL) {
     sock->received_buf = malloc(data_len);

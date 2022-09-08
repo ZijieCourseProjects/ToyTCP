@@ -7,36 +7,32 @@
 #include "tju_tcp.h"
 
 #define MAX_SOCK 32
-tju_tcp_t* listen_socks[MAX_SOCK];
-tju_tcp_t* established_socks[MAX_SOCK];
+tju_tcp_t *listen_socks[MAX_SOCK];
+tju_tcp_t *established_socks[MAX_SOCK];
 
 /*
 模拟Linux内核收到一份TCP报文的处理函数
 */
-void onTCPPocket(char* pkt);
-
+void onTCPPocket(char *pkt);
 
 /*
 以用户填写的TCP报文为参数
 根据用户填写的TCP的目的IP和目的端口,向该地址发送数据报
 */
-void sendToLayer3(char* packet_buf, int packet_len);
-
+void sendToLayer3(char *packet_buf, int packet_len);
 
 /*
 开启仿真, 运行起后台线程
 */
 void startSimulation();
 
-
 /*
  使用UDP进行数据接收的线程
 */
-void* receive_thread(void * in);
+void *receive_thread(void *in);
 
 // 接受UDP的socket的标识符
 int BACKEND_UDPSOCKET_ID;
-
 
 /*
  linux内核会根据
