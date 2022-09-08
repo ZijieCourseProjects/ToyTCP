@@ -22,6 +22,9 @@
 #define SIZE16 2
 #define SIZE8  1
 
+#define INIT_SERVER_SEQ 1895
+#define INIT_CLIENT_SEQ 1919
+
 // 一些Flag
 #define NO_FLAG 0
 #define NO_WAIT 1
@@ -58,7 +61,6 @@
 // 注释的内容如果想用就可以用 不想用就删掉 仅仅提供思路和灵感
 typedef struct {
 	uint16_t window_size;
-
 //   uint32_t base;
 //   uint32_t nextseq;
 //   uint32_t estmated_rtt;

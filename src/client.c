@@ -1,4 +1,5 @@
 #include "tju_tcp.h"
+#include "debug.h"
 #include <string.h>
 
 
@@ -7,7 +8,7 @@ int main(int argc, char **argv) {
     startSimulation();
 
     tju_tcp_t* my_socket = tju_socket();
-    // printf("my_tcp state %d\n", my_socket->state);
+    DEBUG_PRINT("my_tcp state %d\n", my_socket->state);
     
     tju_sock_addr target_addr;
     target_addr.ip = inet_network("172.17.0.3");
