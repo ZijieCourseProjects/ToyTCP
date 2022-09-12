@@ -18,6 +18,9 @@ void onTCPPocket(char *pkt) {
   } else if (strcmp(hostname, "client") == 0) { // 自己是客户端 远端就是服务端
     local_ip = inet_network("172.17.0.2");
     remote_ip = inet_network("172.17.0.3");
+  } else {
+    printf("hostname error\n");
+    exit(1);
   }
 
   int hashval;
