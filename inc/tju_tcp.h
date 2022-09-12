@@ -50,5 +50,7 @@ int tju_recv(tju_tcp_t *sock, void *buffer, int len);
 int tju_close(tju_tcp_t *sock);
 
 int tju_handle_packet(tju_tcp_t *sock, char *pkt);
+
+int send_packet(tju_packet_t *packet_to_send);
 #endif
 

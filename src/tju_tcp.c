@@ -1,8 +1,11 @@
 #include "tju_tcp.h"
 #include "global.h"
+#include "trans.h"
 
 static tju_tcp_t *connected_queue[512];
 static int connected_queue_pointer = 0;
+
+double srtt = INIT_RTT, rto = 5 * INIT_RTT;
 
 /*
 创建 TCP socket 
@@ -11,6 +14,8 @@ static int connected_queue_pointer = 0;
 */
 
 tju_tcp_t *tju_socket() {
+  init_retransmit_timer();
+
   tju_tcp_t *sock = (tju_tcp_t *) malloc(sizeof(tju_tcp_t));
   sock->state = CLOSED;
 
@@ -27,8 +32,8 @@ tju_tcp_t *tju_socket() {
     exit(-1);
   }
 
-  sock->window.wnd_send = NULL;
-  sock->window.wnd_recv = NULL;
+  sock->window.wnd_send = malloc(sizeof(sender_window_t));
+  sock->window.wnd_recv = malloc(sizeof(receiver_window_t));
 
   return sock;
 }
@@ -101,9 +106,14 @@ int tju_connect(tju_tcp_t *sock, tju_sock_addr target_addr) {
   // 循环跳出的条件是socket的状态变为ESTABLISHED 表面看上去就是 正在连接中 阻塞
   // 而状态的改变在别的地方进行 在我们这就是tju_handle_packet
   //SEND SYN
-  char *msg = create_packet_buf(sock->established_local_addr.port, target_addr.port, INIT_CLIENT_SEQ, 0,
-                                DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, SYN_FLAG_MASK, 1, 0, NULL, 0);
-  sendToLayer3(msg, DEFAULT_HEADER_LEN);
+  sock->window.wnd_send->seq = INIT_CLIENT_SEQ;
+  tju_packet_t
+      *pkt = create_packet(sock->established_local_addr.port, target_addr.port, sock->window.wnd_send->seq + 1, 0,
+                           DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, SYN_FLAG_MASK, 1, 0, NULL, 0);
+
+  auto_retransmit(pkt, FALSE);
+  sock->window.wnd_send->seq += 1;
+
   sock->state = SYN_SENT;
   DEBUG_PRINT("SYN SENT\n");
   int hashval = cal_hash(local_addr.ip, local_addr.port, 0, 0);
@@ -122,21 +132,24 @@ int tju_connect(tju_tcp_t *sock, tju_sock_addr target_addr) {
   return 0;
 }
 
+int send_packet(tju_packet_t *packet_to_send) {
+  char *msg = packet_to_buf(packet_to_send);
+  sendToLayer3(msg, packet_to_send->header.plen);
+  free(msg);
+  return 0;
+}
+
 int tju_send(tju_tcp_t *sock, const void *buffer, int len) {
-  // 这里当然不能直接简单地调用sendToLayer3
   char *data = malloc(len);
   memcpy(data, buffer, len);
 
-  char *msg;
-  uint32_t seq = 464;
+  uint32_t seq = sock->window.wnd_send->seq;
   uint16_t plen = DEFAULT_HEADER_LEN + len;
 
-  msg = create_packet_buf(sock->established_local_addr.port, sock->established_remote_addr.port, seq, 0,
-                          DEFAULT_HEADER_LEN, plen, NO_FLAG, 1, 0, data, len);
-
-  sendToLayer3(msg, plen);
-
-  return 0;
+  tju_packet_t *pkt = create_packet(sock->established_local_addr.port, sock->established_remote_addr.port, seq, 0,
+                                    DEFAULT_HEADER_LEN, plen, NO_FLAG, 1, 0, data, len);
+  return auto_retransmit(pkt, FALSE);
+  //return arb_send(sock, buffer, len);
 }
 int tju_recv(tju_tcp_t *sock, void *buffer, int len) {
   while (sock->received_len <= 0) {
@@ -180,6 +193,7 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
   uint8_t flag = get_flags(pkt);
   uint32_t seq = get_seq(pkt);
   uint32_t ack = get_ack(pkt);
+  on_ack_received(ack);
   uint16_t src_port = get_src(pkt);
   uint16_t dst_port = get_dst(pkt);
 
@@ -190,19 +204,21 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
       if (flag == SYN_FLAG_MASK) {
         DEBUG_PRINT("SYN_FLAG RECEIVED\n");
         sock->state = SYN_RECV;
+        sock->window.wnd_send->seq = INIT_SERVER_SEQ;
         //SEND SYN ACK
-        char *msg = create_packet_buf(dst_port,
-                                      src_port,
-                                      INIT_SERVER_SEQ,
-                                      seq + 1,
-                                      DEFAULT_HEADER_LEN,
-                                      DEFAULT_HEADER_LEN,
-                                      SYN_FLAG_MASK | ACK_FLAG_MASK,
-                                      1,
-                                      0,
-                                      NULL,
-                                      0);
-        sendToLayer3(msg, DEFAULT_HEADER_LEN);
+        tju_packet_t *pkt = create_packet(dst_port,
+                                          src_port,
+                                          sock->window.wnd_send->seq,
+                                          seq + 1,
+                                          DEFAULT_HEADER_LEN,
+                                          DEFAULT_HEADER_LEN,
+                                          SYN_FLAG_MASK | ACK_FLAG_MASK,
+                                          1,
+                                          0,
+                                          NULL,
+                                          0);
+        sock->window.wnd_send->seq += 1;
+        auto_retransmit(pkt, TRUE);
         DEBUG_PRINT("SYN_ACK SENT\n");
       }
       break;
@@ -212,9 +228,9 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
         sock->state = ESTABLISHED;
 
         //SEND ACK
-        char *msg = create_packet_buf(dst_port, src_port, ack, seq + 1,
-                                      DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, ACK_FLAG_MASK, 1, 0, NULL, 0);
-        sendToLayer3(msg, DEFAULT_HEADER_LEN);
+        tju_packet_t *pkt = create_packet(dst_port, src_port, sock->window.wnd_send->seq, seq + 1,
+                                          DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, ACK_FLAG_MASK, 1, 0, NULL, 0);
+        auto_retransmit(pkt, FALSE);
         DEBUG_PRINT("ACK SENT\n");
       }
       break;

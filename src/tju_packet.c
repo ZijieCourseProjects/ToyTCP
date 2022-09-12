@@ -1,7 +1,5 @@
 #include "tju_packet.h"
 
-double srtt = INIT_RTT, rto = 5 * INIT_RTT;
-
 /*
  输入header所有字段 和 TCP包数据内容及其长度
  构造tju_packet_t
