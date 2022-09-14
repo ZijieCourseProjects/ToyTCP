@@ -177,5 +177,11 @@ void startSimulation() {
 
 int cal_hash(uint32_t local_ip, uint16_t local_port, uint32_t remote_ip, uint16_t remote_port) {
   // 实际上肯定不是这么算的
-  return ((int) local_ip + (int) local_port + (int) remote_ip + (int) remote_port) % MAX_SOCK;
+  int ret = ((int) local_ip + (int) local_port + (int) remote_ip + (int) remote_port) %
+      MAX_SOCK;
+  if (ret < 0) {
+    return ret + MAX_SOCK;
+  } else {
+    return ret;
+  }
 }
