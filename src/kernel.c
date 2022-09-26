@@ -27,6 +27,7 @@ void onTCPPocket(char *pkt) {
   //DEBUG_PRINT("local_ip %d local_port %d remote_ip %d remote_port %d\n", local_ip, local_port, remote_ip, remote_port);
   // 根据4个ip port 组成四元组 查找有没有已经建立连接的socket
   hashval = cal_hash(local_ip, local_port, remote_ip, remote_port);
+  //DEBUG_PRINT("RECEIVED FROM %d\n", hashval);
 
   // 首先查找已经建立连接的socket哈希表
   if (established_socks[hashval] != NULL) {

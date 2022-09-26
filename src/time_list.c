@@ -26,7 +26,7 @@ struct time_list *time_list_init() {
  * args is the arguments to be passed to the callback function
  * return timer id
  */
-uint32_t set_timer(struct time_list *list, uint32_t sec, uint32_t nano_sec, void *(*callback)(void *), void *args) {
+uint32_t set_timer(struct time_list *list, uint32_t sec, uint64_t nano_sec, void *(*callback)(void *), void *args) {
 
   pthread_mutex_lock(&list->lock);
 
@@ -56,7 +56,7 @@ uint32_t set_timer(struct time_list *list, uint32_t sec, uint32_t nano_sec, void
 }
 uint32_t set_timer_without_mutex(struct time_list *list,
                                  uint32_t sec,
-                                 uint32_t nano_sec,
+                                 uint64_t nano_sec,
                                  void *(*callback)(void *),
                                  void *args) {
 
@@ -99,7 +99,9 @@ void *check_timer(struct time_list *list) {
   clock_gettime(CLOCK_REALTIME, &now);
   uint64_t current_time = TO_NANO(now);
   uint64_t timeout = TO_NANO((*(list->head->event.timeout)));
+  //DEBUG_PRINT("Currenttime: %lu, timeout: %lu", current_time, timeout);
   if (timeout <= current_time) {
+    DEBUG_PRINT("Currenttime: %lu, timeout: %lu\n", current_time, timeout);
     struct time_node *tmp = list->head;
     list->head = list->head->next;
     DEBUG_PRINT("timer %d timeout\n", tmp->id);
@@ -147,7 +149,7 @@ uint32_t get_recent_timeout(struct time_list *list) {
  * return 0 if success
  * return -1 if timer not found
  */
-int cancel_timer(struct time_list *list, uint32_t id) {
+int cancel_timer(struct time_list *list, uint32_t id, int destroy, void (*des)(void *)) {
   DEBUG_PRINT("trying to cancel timer %d\n", id);
   pthread_mutex_lock(&list->lock);
   struct time_node *tmp = list->head;
@@ -158,6 +160,9 @@ int cancel_timer(struct time_list *list, uint32_t id) {
         list->head = tmp->next;
       } else {
         prev->next = tmp->next;
+      }
+      if (destroy) {
+        des(tmp->event.args);
       }
       free_node(tmp);
       list->size--;

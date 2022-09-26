@@ -6,7 +6,7 @@
 #define TJU_TCP_INC_TIMER_LIST_H_
 #include "global.h"
 
-#define SEC2NANO(x) (uint32_t)(x * 1000000000)
+#define SEC2NANO(x) (uint64_t)(x * 1000000000)
 #define TO_TIMESPEC(nano) (struct timespec){.tv_sec = (time_t)(nano / 1000000000), .tv_nsec = (long)(nano % 1000000000)}
 
 typedef struct timer_event {
@@ -31,12 +31,12 @@ typedef struct time_list {
 
 struct time_list *time_list_init();
 uint32_t get_recent_timeout(struct time_list *list);
-uint32_t set_timer(struct time_list *list, uint32_t sec, uint32_t nano_sec, void *(*callback)(void *), void *args);
+uint32_t set_timer(struct time_list *list, uint32_t sec, uint64_t nano_sec, void *(*callback)(void *), void *args);
 void *check_timer(struct time_list *list);
 uint32_t set_timer_without_mutex(struct time_list *list,
                                  uint32_t sec,
-                                 uint32_t nano_sec,
+                                 uint64_t nano_sec,
                                  void *(*callback)(void *),
                                  void *args);
-int cancel_timer(struct time_list *list, uint32_t id);
+int cancel_timer(struct time_list *list, uint32_t id, int destroy, void (*des)(void *));
 #endif //TJU_TCP_INC_TIMER_LIST_H_

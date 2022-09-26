@@ -7,7 +7,7 @@
  */
 tju_packet_t *create_packet(uint16_t src, uint16_t dst, uint32_t seq,
                             uint32_t ack, uint16_t hlen, uint16_t plen, uint8_t flags,
-                            uint16_t adv_window, uint8_t ext, char *data, int len) {
+                            uint16_t adv_window, uint8_t ext, const char *data, int len) {
 
   tju_packet_t *new = malloc(sizeof(tju_packet_t));
 

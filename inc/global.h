@@ -11,8 +11,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include "global.h"
 #include "debug.h"
+#include "queue.h"
+#include "logger.h"
 #include "timer_list.h"
 #include <pthread.h>
 #include <sys/select.h>
@@ -33,7 +34,7 @@
 //RTT CALCULATION
 #define RTT_ALPHA 0.125
 #define RTT_BETA 0.25
-#define INIT_RTT 0.5
+#define INIT_RTT 2
 #define RTT_UBOUND 60
 #define RTT_LBOUND 1.0
 
@@ -74,9 +75,10 @@
 typedef struct {
   uint16_t window_size;
   uint32_t seq;
-//   uint32_t base;
-//   uint32_t nextseq;
-//   uint32_t estmated_rtt;
+  uint32_t base;
+  uint32_t nextseq;
+  double estmated_rtt;
+  double rto;
 //   int ack_cnt;
 //   pthread_mutex_t ack_cnt_lock;
 //   struct timeval send_time;
@@ -95,7 +97,7 @@ typedef struct {
 //   received_packet_t* head;
 //   char buf[TCP_RECVWN_SIZE];
 //   uint8_t marked[TCP_RECVWN_SIZE];
-//   uint32_t expect_seq;
+  uint32_t expect_seq;
 } receiver_window_t;
 
 // TCP 窗口 每个建立了连接的TCP都包括发送和接受两个窗口
@@ -110,6 +112,7 @@ typedef struct {
 } tju_sock_addr;
 
 // TJU_TCP 结构体 保存TJU_TCP用到的各种数据
+
 typedef struct {
   int state; // TCP的状态
 
@@ -119,6 +122,7 @@ typedef struct {
 
   pthread_mutex_t send_lock; // 发送数据锁
   char *sending_buf; // 发送数据缓存区
+  struct Queue *sending_queue; // 发送队列
   int sending_len; // 发送数据缓存长度
 
   pthread_mutex_t recv_lock; // 接收数据锁
@@ -132,9 +136,8 @@ typedef struct {
 } tju_tcp_t;
 
 typedef struct {
+  void *pkt;
   tju_tcp_t *sock;
-  char *pkt;
-  uint32_t length;
-} pkt_info;
+} retransmit_arg_t;
 
 #endif
