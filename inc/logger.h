@@ -9,14 +9,10 @@
 
 void init_logger();
 void close_logger();
-extern FILE *log_file;
 
-#define LOG_PRINT(...) \
-    do {                 \
-        if(DEBUG){       \
-        fprintf(log_file, "DEBUG MESSAGE: %s:%d:%s(): ", __FILE__, \
-                __LINE__, __func__); \
-        fprintf(log_file, __VA_ARGS__);}             \
-        } while (0)
+void log_recv_event(int seq, int ack, int flag);
+void log_send_event(int seq, int ack, int flag);
+
+extern FILE *log_file;
 
 #endif //TJU_TCP_SRC_LOGGER_H_

@@ -151,7 +151,7 @@ int send_packet(tju_packet_t *packet_to_send) {
 }
 
 int tju_send(tju_tcp_t *sock, const void *buffer, int len) {
-  DEBUG_PRINT("message to send:%s\n", (char *) buffer);
+  //DEBUG_PRINT("message to send:%s\n", (char *) buffer);
   pthread_mutex_lock(&sock->send_lock);
   int count = len / MAX_DLEN;
   for (int i = 0; i <= count; ++i) {
@@ -170,7 +170,7 @@ int tju_send(tju_tcp_t *sock, const void *buffer, int len) {
       sleep(1);
     }
     auto_retransmit(sock, pkt, TRUE);
-    LOG_PRINT("send packet seq:%d\n", pkt->header.seq_num);
+    log_send_event(pkt->header.seq_num, pkt->header.ack_num, pkt->header.flags);
     sock->window.wnd_send->nextseq += pkt->header.plen - DEFAULT_HEADER_LEN;
   }
   pthread_mutex_unlock(&sock->send_lock);
@@ -205,7 +205,7 @@ int tju_recv(tju_tcp_t *sock, void *buffer, int len) {
   }
   pthread_mutex_unlock(&(sock->recv_lock)); // 解锁
 
-  return 0;
+  return read_len;
 }
 
 int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
@@ -223,6 +223,8 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
   }
   uint16_t src_port = get_src(pkt);
   uint16_t dst_port = get_dst(pkt);
+
+  log_recv_event(seq, ack, flag);
 
   tju_tcp_t *new_conn = NULL;
 
@@ -287,14 +289,20 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
       }
       break;
   }
-  if (sock->received_buf == NULL) {
-    sock->received_buf = malloc(data_len);
-  } else {
-    sock->received_buf = realloc(sock->received_buf, sock->received_len + data_len);
+  if (data_len > 0) {
+    if (sock->received_buf == NULL) {
+      sock->received_buf = malloc(data_len);
+    } else {
+      if (sock->received_len == 0) {
+        sock->received_buf = malloc(data_len);
+      } else {
+        sock->received_buf = realloc(sock->received_buf, sock->received_len + data_len);
+      }
+    }
+    memset(sock->received_buf + sock->received_len, 0, data_len);
+    memcpy(sock->received_buf + sock->received_len, pkt + DEFAULT_HEADER_LEN, data_len);
+    sock->received_len += data_len;
   }
-  memcpy(sock->received_buf + sock->received_len, pkt + DEFAULT_HEADER_LEN, data_len);
-  sock->received_len += data_len;
-
   pthread_mutex_unlock(&(sock->recv_lock)); // 解锁
 
 

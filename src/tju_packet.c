@@ -138,7 +138,9 @@ char *header_in_char(uint16_t src, uint16_t dst, uint32_t seq, uint32_t ack,
   uint16_t temp16;
   uint32_t temp32;
 
-  char *msg = (char *) calloc(plen, sizeof(char));
+  char *msg = (char *) malloc(plen);
+  memset(msg, 0, plen);
+
   int index = 0;
 
   temp16 = htons(src);

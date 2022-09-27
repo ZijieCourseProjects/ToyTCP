@@ -34,6 +34,7 @@ uint32_t set_timer(struct time_list *list, uint32_t sec, uint64_t nano_sec, void
   memset(now, 0, sizeof(struct timespec));
   clock_gettime(CLOCK_REALTIME, now);
   struct time_node *node = malloc(sizeof(struct time_node));
+  memset(node, 0, sizeof(struct time_node));
   now->tv_sec += sec;
   now->tv_nsec += nano_sec;
   node->event.timeout = now;
@@ -49,6 +50,7 @@ uint32_t set_timer(struct time_list *list, uint32_t sec, uint64_t nano_sec, void
     list->tail = node;
   }
   list->size++;
+  print_list(list);
 //  DEBUG_PRINT("set timer %d, timeout at %u\n", node->id, node->event.timeout);
   pthread_mutex_unlock(&list->lock);
 
@@ -64,6 +66,7 @@ uint32_t set_timer_without_mutex(struct time_list *list,
   memset(now, 0, sizeof(struct timespec));
   clock_gettime(CLOCK_REALTIME, now);
   struct time_node *node = malloc(sizeof(struct time_node));
+  memset(node, 0, sizeof(struct time_node));
   now->tv_sec += sec;
   now->tv_nsec += nano_sec;
   node->event.timeout = now;
@@ -79,6 +82,7 @@ uint32_t set_timer_without_mutex(struct time_list *list,
     list->tail = node;
   }
   list->size++;
+  print_list(list);
 //  DEBUG_PRINT("set timer %d, timeout at %u\n", node->id, node->event.timeout);
   return node->id;
 }
@@ -89,11 +93,12 @@ uint32_t set_timer_without_mutex(struct time_list *list,
  * NULL if no timer is timeout
  */
 void *check_timer(struct time_list *list) {
+  pthread_mutex_lock(&list->lock);
+
   if (list->head == NULL) {
+    pthread_mutex_unlock(&list->lock);
     return NULL;
   }
-
-  pthread_mutex_lock(&list->lock);
 
   struct timespec now;
   clock_gettime(CLOCK_REALTIME, &now);
@@ -104,13 +109,19 @@ void *check_timer(struct time_list *list) {
     DEBUG_PRINT("Currenttime: %lu, timeout: %lu\n", current_time, timeout);
     struct time_node *tmp = list->head;
     list->head = list->head->next;
+    if (list->head == NULL) {
+      list->tail = NULL;
+    }
     DEBUG_PRINT("timer %d timeout\n", tmp->id);
 
     //invoke the callback function
     void *result = tmp->event.callback(tmp->event.args);
 
+    //TODO:Potential memory leak
     free_node(tmp);
+
     list->size--;
+    print_list(list);
     pthread_mutex_unlock(&list->lock);
 
     return result;
@@ -129,11 +140,11 @@ void free_node(struct time_node *tmp) {
  * get the timeout of the first timer
  */
 uint32_t get_recent_timeout(struct time_list *list) {
+  pthread_mutex_lock(&list->lock);
   if (list->head == NULL) {
+    pthread_mutex_unlock(&list->lock);
     return 0;
   }
-
-  pthread_mutex_lock(&list->lock);
 
   struct timespec now;
   clock_gettime(CLOCK_REALTIME, &now);
@@ -161,18 +172,23 @@ int cancel_timer(struct time_list *list, uint32_t id, int destroy, void (*des)(v
       } else {
         prev->next = tmp->next;
       }
+      if (tmp == list->tail) {
+        list->tail = prev;
+      }
       if (destroy) {
         des(tmp->event.args);
       }
       free_node(tmp);
       list->size--;
       DEBUG_PRINT("timer %d canceled\n", id);
+      print_list(list);
       pthread_mutex_unlock(&list->lock);
       return 0;
     }
     prev = tmp;
     tmp = tmp->next;
   }
+  print_list(list);
   pthread_mutex_unlock(&list->lock);
 
   return -1;

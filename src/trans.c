@@ -8,7 +8,7 @@
 #include "global.h"
 #include "tju_tcp.h"
 
-uint32_t ack_id_hash[1 << 16];
+uint32_t ack_id_hash[100000000];
 
 pthread_cond_t packet_available = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t cond_mutex = PTHREAD_MUTEX_INITIALIZER;
