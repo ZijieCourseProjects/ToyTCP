@@ -15,6 +15,7 @@
 #include "queue.h"
 #include "logger.h"
 #include "timer_list.h"
+#include "list.h"
 #include <pthread.h>
 #include <sys/select.h>
 #include <arpa/inet.h>
@@ -28,13 +29,13 @@
 #define SIZE16 2
 #define SIZE8  1
 
-#define INIT_SERVER_SEQ 1895
-#define INIT_CLIENT_SEQ 1919
+#define INIT_SERVER_SEQ 300
+#define INIT_CLIENT_SEQ 100
 
 //RTT CALCULATION
 #define RTT_ALPHA 0.125
 #define RTT_BETA 0.25
-#define INIT_RTT 2
+#define INIT_RTT 0.05
 #define RTT_UBOUND 60
 #define RTT_LBOUND 1.0
 
@@ -98,6 +99,7 @@ typedef struct {
 //   char buf[TCP_RECVWN_SIZE];
 //   uint8_t marked[TCP_RECVWN_SIZE];
   uint32_t expect_seq;
+  struct list *buffer_list;
 } receiver_window_t;
 
 // TCP 窗口 每个建立了连接的TCP都包括发送和接受两个窗口
@@ -127,7 +129,7 @@ typedef struct {
 
   pthread_mutex_t recv_lock; // 接收数据锁
   char *received_buf; // 接收数据缓存区
-  int received_len; // 接收数据缓存长度
+  uint32_t received_len; // 接收数据缓存长度
 
   pthread_cond_t wait_cond; // 可以被用来唤醒recv函数调用时等待的线程
 

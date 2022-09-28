@@ -66,9 +66,13 @@ uint32_t auto_retransmit(tju_tcp_t *sock, tju_packet_t *pkt, int requiring_ack) 
 }
 
 void free_retrans_arg(void *arg) {
-  retransmit_arg_t *ptr = (retransmit_arg_t *) arg;
-  free(ptr->pkt);
-  free(ptr);
+  timer_event *ptr = (timer_event *) arg;
+  struct timespec now;
+  clock_gettime(CLOCK_REALTIME, &now);
+  uint64_t current_time = TO_NANO(now);
+  uint64_t create_time = TO_NANO((*ptr->create_time));
+  re_calculate_rtt(NANO2SEC((current_time - create_time)), ((retransmit_arg_t *) ptr->args)->sock);
+  free(((retransmit_arg_t *) ptr->args)->pkt);
 }
 
 void on_ack_received(uint32_t ack, tju_tcp_t *sock) {

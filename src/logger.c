@@ -28,7 +28,7 @@ long getCurrentTime() {
   return tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
-void log_send_event(int seq, int ack, int flag) {
+void log_send_event(uint32_t seq, uint32_t ack, uint32_t flag) {
   pthread_mutex_lock(&log_mutex);
   char msg[32];
   memset(msg, 0, sizeof(msg));
@@ -38,7 +38,7 @@ void log_send_event(int seq, int ack, int flag) {
   fprintf(log_file, "[SEND] [%ld] [sqe:%d ack:%d flag:%s]\n", getCurrentTime(), seq, ack, msg);
   pthread_mutex_unlock(&log_mutex);
 }
-void log_recv_event(int seq, int ack, int flag) {
+void log_recv_event(uint32_t seq, uint32_t ack, uint32_t flag) {
   pthread_mutex_lock(&log_mutex);
   char msg[32];
   memset(msg, 0, sizeof(msg));

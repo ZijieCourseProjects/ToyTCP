@@ -2,11 +2,9 @@
 // Created by Eric Zhao on 9/9/2022.
 //
 #include "time.h"
-#include "timer_list.h"
+#include "../inc/timer_list.h"
 #include "stdlib.h"
 
-#define TO_SEC(timespec) (timespec.tv_sec + timespec.tv_nsec / 1000000000.0)
-#define TO_NANO(timespec) (timespec.tv_sec * 1000000000 + timespec.tv_nsec)
 #define TO_TIMESPEC(nano) (struct timespec){.tv_sec = (time_t)(nano / 1000000000), .tv_nsec = (long)(nano % 1000000000)}
 void free_node(struct time_node *tmp);
 
@@ -30,14 +28,16 @@ uint32_t set_timer(struct time_list *list, uint32_t sec, uint64_t nano_sec, void
 
   pthread_mutex_lock(&list->lock);
 
+  struct timespec *timeout = malloc(sizeof(struct timespec));
   struct timespec *now = malloc(sizeof(struct timespec));
-  memset(now, 0, sizeof(struct timespec));
+  clock_gettime(CLOCK_REALTIME, timeout);
   clock_gettime(CLOCK_REALTIME, now);
   struct time_node *node = malloc(sizeof(struct time_node));
   memset(node, 0, sizeof(struct time_node));
-  now->tv_sec += sec;
-  now->tv_nsec += nano_sec;
-  node->event.timeout = now;
+  timeout->tv_sec += sec;
+  timeout->tv_nsec += nano_sec;
+  node->event.create_time = now;
+  node->event.timeout = timeout;
   node->event.callback = callback;
   node->event.args = args;
   node->id = list->id_pool++;
@@ -50,7 +50,6 @@ uint32_t set_timer(struct time_list *list, uint32_t sec, uint64_t nano_sec, void
     list->tail = node;
   }
   list->size++;
-  print_list(list);
 //  DEBUG_PRINT("set timer %d, timeout at %u\n", node->id, node->event.timeout);
   pthread_mutex_unlock(&list->lock);
 
@@ -62,14 +61,16 @@ uint32_t set_timer_without_mutex(struct time_list *list,
                                  void *(*callback)(void *),
                                  void *args) {
 
+  struct timespec *timeout = malloc(sizeof(struct timespec));
   struct timespec *now = malloc(sizeof(struct timespec));
-  memset(now, 0, sizeof(struct timespec));
+  clock_gettime(CLOCK_REALTIME, timeout);
   clock_gettime(CLOCK_REALTIME, now);
   struct time_node *node = malloc(sizeof(struct time_node));
   memset(node, 0, sizeof(struct time_node));
-  now->tv_sec += sec;
-  now->tv_nsec += nano_sec;
-  node->event.timeout = now;
+  timeout->tv_sec += sec;
+  timeout->tv_nsec += nano_sec;
+  node->event.timeout = timeout;
+  node->event.create_time = now;
   node->event.callback = callback;
   node->event.args = args;
   node->id = list->id_pool++;
@@ -82,7 +83,6 @@ uint32_t set_timer_without_mutex(struct time_list *list,
     list->tail = node;
   }
   list->size++;
-  print_list(list);
 //  DEBUG_PRINT("set timer %d, timeout at %u\n", node->id, node->event.timeout);
   return node->id;
 }
@@ -121,7 +121,6 @@ void *check_timer(struct time_list *list) {
     free_node(tmp);
 
     list->size--;
-    print_list(list);
     pthread_mutex_unlock(&list->lock);
 
     return result;
@@ -133,6 +132,7 @@ void *check_timer(struct time_list *list) {
 
 void free_node(struct time_node *tmp) {
   free(tmp->event.timeout);
+  free(tmp->event.create_time);
   free(tmp);
 }
 
@@ -176,19 +176,17 @@ int cancel_timer(struct time_list *list, uint32_t id, int destroy, void (*des)(v
         list->tail = prev;
       }
       if (destroy) {
-        des(tmp->event.args);
+        des(&tmp->event);
       }
       free_node(tmp);
       list->size--;
       DEBUG_PRINT("timer %d canceled\n", id);
-      print_list(list);
       pthread_mutex_unlock(&list->lock);
       return 0;
     }
     prev = tmp;
     tmp = tmp->next;
   }
-  print_list(list);
   pthread_mutex_unlock(&list->lock);
 
   return -1;

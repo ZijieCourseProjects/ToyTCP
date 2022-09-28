@@ -6,12 +6,13 @@
 #define TJU_TCP_SRC_LOGGER_H_
 
 #include <stdio.h>
+#include "global.h"
 
 void init_logger();
 void close_logger();
 
-void log_recv_event(int seq, int ack, int flag);
-void log_send_event(int seq, int ack, int flag);
+void log_recv_event(uint32_t seq, uint32_t ack, uint32_t flag);
+void log_send_event(uint32_t seq, uint32_t ack, uint32_t flag);
 
 extern FILE *log_file;
 

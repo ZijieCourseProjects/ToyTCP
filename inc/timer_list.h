@@ -7,9 +7,12 @@
 #include "global.h"
 
 #define SEC2NANO(x) (uint64_t)(x * 1000000000)
+#define NANO2SEC(x) (double)((double)x / 1000000000)
 #define TO_TIMESPEC(nano) (struct timespec){.tv_sec = (time_t)(nano / 1000000000), .tv_nsec = (long)(nano % 1000000000)}
+#define TO_NANO(timespec) (uint64_t)(timespec.tv_sec * 1000000000 + timespec.tv_nsec)
 
 typedef struct timer_event {
+  struct timespec *create_time;
   struct timespec *timeout;
   void *(*callback)(void *);
   void *args;

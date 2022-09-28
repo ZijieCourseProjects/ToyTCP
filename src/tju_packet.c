@@ -61,6 +61,25 @@ void free_packet(tju_packet_t *packet) {
   free(packet);
 }
 
+tju_packet_t *buf_to_packet(char *buf) {
+  tju_packet_t *new = malloc(sizeof(tju_packet_t));
+
+  new->header.hlen = get_hlen(buf);
+  new->header.plen = get_plen(buf);
+  new->header.source_port = get_src(buf);
+  new->header.destination_port = get_dst(buf);
+  new->header.seq_num = get_seq(buf);
+  new->header.ack_num = get_ack(buf);
+  new->header.flags = get_flags(buf);
+  new->header.advertised_window = get_advertised_window(buf);
+  new->header.ext = get_ext(buf);
+
+  new->data = malloc(new->header.plen - DEFAULT_HEADER_LEN);
+  new->data = memcpy(new->data, buf + DEFAULT_HEADER_LEN, new->header.plen - DEFAULT_HEADER_LEN);
+
+  return new;
+}
+
 /*
  下面的函数全部都是从一个packet的字符串中
  根据各个字段的偏移量

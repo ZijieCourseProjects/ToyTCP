@@ -65,13 +65,13 @@ void sendToLayer3(char *packet_buf, int packet_len) {
   struct sockaddr_in conn;
   conn.sin_family = AF_INET;
   conn.sin_port = htons(20218);
-  int rst;
+  //int rst;
   if (strcmp(hostname, "server") == 0) {
     conn.sin_addr.s_addr = inet_addr("172.17.0.2");
-    rst = sendto(BACKEND_UDPSOCKET_ID, packet_buf, packet_len, 0, (struct sockaddr *) &conn, sizeof(conn));
+    sendto(BACKEND_UDPSOCKET_ID, packet_buf, packet_len, 0, (struct sockaddr *) &conn, sizeof(conn));
   } else if (strcmp(hostname, "client") == 0) {
     conn.sin_addr.s_addr = inet_addr("172.17.0.3");
-    rst = sendto(BACKEND_UDPSOCKET_ID, packet_buf, packet_len, 0, (struct sockaddr *) &conn, sizeof(conn));
+    sendto(BACKEND_UDPSOCKET_ID, packet_buf, packet_len, 0, (struct sockaddr *) &conn, sizeof(conn));
   } else {
     printf("请不要改动hostname...\n");
     exit(-1);

@@ -47,6 +47,8 @@ tju_packet_t *create_packet(uint16_t src, uint16_t dst, uint32_t seq,
                             uint32_t ack, uint16_t hlen, uint16_t plen, uint8_t flags,
                             uint16_t adv_window, uint8_t ext, const char *data, int len);
 
+tju_packet_t *buf_to_packet(char *buf);
+
 /*
  输入header所有字段 和 TCP包数据内容及其长度
  构造tju_packet_t 
