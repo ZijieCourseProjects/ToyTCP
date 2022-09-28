@@ -56,7 +56,7 @@ tju_tcp_t *tju_socket() {
   sock->window.wnd_send->rto = INIT_RTT;
   sock->window.wnd_send->estmated_rtt = INIT_RTT;
 
-  sock->window.wnd_send->window_size = 30;
+  sock->window.wnd_send->window_size = 10000;
 
 /*
   sock->window.wnd_recv->received_map =

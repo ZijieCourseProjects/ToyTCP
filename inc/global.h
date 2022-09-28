@@ -37,7 +37,7 @@
 #define RTT_BETA 0.25
 #define INIT_RTT 0.05
 #define RTT_UBOUND 60
-#define RTT_LBOUND 1.0
+#define RTT_LBOUND 0.05
 
 // 一些Flag
 #define NO_FLAG 0
@@ -74,7 +74,7 @@
 // TCP 发送窗口
 // 注释的内容如果想用就可以用 不想用就删掉 仅仅提供思路和灵感
 typedef struct {
-  uint16_t window_size;
+  uint32_t window_size;
   uint32_t seq;
   uint32_t base;
   uint32_t nextseq;

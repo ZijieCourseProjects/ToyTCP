@@ -71,7 +71,7 @@ void free_retrans_arg(void *arg) {
   clock_gettime(CLOCK_REALTIME, &now);
   uint64_t current_time = TO_NANO(now);
   uint64_t create_time = TO_NANO((*ptr->create_time));
-  re_calculate_rtt(NANO2SEC((current_time - create_time)), ((retransmit_arg_t *) ptr->args)->sock);
+  re_calculate_rtt((current_time - create_time) / 1000000000.0, ((retransmit_arg_t *) ptr->args)->sock);
   free(((retransmit_arg_t *) ptr->args)->pkt);
 }
 
@@ -80,7 +80,11 @@ void on_ack_received(uint32_t ack, tju_tcp_t *sock) {
   // TODO: an ack should remove all the packets with seq_num+length < ack
   DEBUG_PRINT("ack received: %d\n", ack);
   if (ack_id_hash[ack] != 0) {
-    sock->window.wnd_send->base = ack;
+    uint32_t tmp = sock->window.wnd_send->base;
+    while (ack_id_hash[++tmp] == 0);
+    if (tmp == ack) {
+      sock->window.wnd_send->base = ack;
+    }
     cancel_timer(timer_list, ack_id_hash[ack], 1, free_retrans_arg);
     ack_id_hash[ack] = 0;
   }
