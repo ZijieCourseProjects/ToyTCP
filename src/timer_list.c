@@ -122,12 +122,41 @@ void *check_timer(struct time_list *list) {
 
     list->size--;
     pthread_mutex_unlock(&list->lock);
+    nanosleep((struct timespec[]) {{0, 30000000}}, NULL);
 
     return result;
   }
   pthread_mutex_unlock(&list->lock);
 
   return NULL;
+}
+
+void hit_node(struct time_list *list, uint32_t id) {
+  pthread_mutex_lock(&list->lock);
+  struct time_node *tmp = list->head;
+  struct time_node *prev = NULL;
+  while (tmp != NULL) {
+    if (tmp->id == id) {
+      if (prev == NULL) {
+        list->head = list->head->next;
+        if (list->head == NULL) {
+          list->tail = NULL;
+        }
+      } else {
+        prev->next = tmp->next;
+        if (tmp->next == NULL) {
+          list->tail = prev;
+        }
+      }
+      list->size--;
+      tmp->event.callback(tmp->event.args);
+      free_node(tmp);
+      break;
+    }
+    prev = tmp;
+    tmp = tmp->next;
+  }
+  pthread_mutex_unlock(&list->lock);
 }
 
 void free_node(struct time_node *tmp) {

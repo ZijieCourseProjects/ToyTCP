@@ -39,6 +39,8 @@
 #define RTT_UBOUND 60
 #define RTT_LBOUND 0.05
 
+#define INIT_WINDOW_SIZE 50
+
 // 一些Flag
 #define NO_FLAG 0
 #define NO_WAIT 1
@@ -78,6 +80,8 @@ typedef struct {
   uint32_t seq;
   uint32_t base;
   uint32_t nextseq;
+  uint32_t prev_ack;
+  uint32_t prev_ack_count;
   double estmated_rtt;
   double rto;
 //   int ack_cnt;

@@ -12,6 +12,9 @@ uint32_t ack_id_hash[100000000];
 
 pthread_cond_t packet_available = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t cond_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t retran_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+uint32_t retransmit_count = 0;
 
 time_list *timer_list = NULL;
 
@@ -61,7 +64,6 @@ uint32_t auto_retransmit(tju_tcp_t *sock, tju_packet_t *pkt, int requiring_ack) 
                 sock->window.wnd_send->rto);
   }
   send_packet(pkt);
-  DEBUG_PRINT("Sending Packet: ack:%d, seq:%d\n", pkt->header.ack_num, pkt->header.seq_num);
   return id;
 }
 
@@ -75,16 +77,37 @@ void free_retrans_arg(void *arg) {
   free(((retransmit_arg_t *) ptr->args)->pkt);
 }
 
+void free_retrans_arg_without_recal(void *arg) {
+  timer_event *ptr = (timer_event *) arg;
+  free(((retransmit_arg_t *) ptr->args)->pkt);
+}
+
 void on_ack_received(uint32_t ack, tju_tcp_t *sock) {
 
   // TODO: an ack should remove all the packets with seq_num+length < ack
   DEBUG_PRINT("ack received: %d\n", ack);
-  if (ack_id_hash[ack] != 0) {
-    uint32_t tmp = sock->window.wnd_send->base;
-    while (ack_id_hash[++tmp] == 0);
-    if (tmp == ack) {
-      sock->window.wnd_send->base = ack;
+  if (ack == sock->window.wnd_send->prev_ack) {
+    if (sock->window.wnd_send->prev_ack_count == -1) return;
+    sock->window.wnd_send->prev_ack_count++;
+    if (sock->window.wnd_send->prev_ack_count >= 3) {
+      int temp = sock->window.wnd_send->base;
+      while (ack_id_hash[++temp] == 0);
+      hit_node(timer_list, ack_id_hash[temp]);
+      DEBUG_PRINT("3 duplicate acks, fast retransmitting %d\n", temp);
+      sock->window.wnd_send->prev_ack_count = -1;
     }
+  } else {
+    sock->window.wnd_send->prev_ack_count = 0;
+    sock->window.wnd_send->prev_ack = ack;
+  }
+  if (ack_id_hash[ack] != 0) {
+    for (uint32_t i = sock->window.wnd_send->base; i < ack; i++) {
+      if (ack_id_hash[i] != 0) {
+        cancel_timer(timer_list, ack_id_hash[i], 1, free_retrans_arg_without_recal);
+        ack_id_hash[i] = 0;
+      }
+    }
+    sock->window.wnd_send->base = ack;
     cancel_timer(timer_list, ack_id_hash[ack], 1, free_retrans_arg);
     ack_id_hash[ack] = 0;
   }

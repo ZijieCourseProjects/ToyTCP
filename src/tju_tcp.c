@@ -56,7 +56,9 @@ tju_tcp_t *tju_socket() {
   sock->window.wnd_send->rto = INIT_RTT;
   sock->window.wnd_send->estmated_rtt = INIT_RTT;
 
-  sock->window.wnd_send->window_size = 10000;
+  sock->window.wnd_send->window_size = INIT_WINDOW_SIZE;
+  sock->window.wnd_send->prev_ack_count = 0;
+  sock->window.wnd_send->prev_ack = 0;
 
 /*
   sock->window.wnd_recv->received_map =
@@ -166,6 +168,7 @@ int tju_connect(tju_tcp_t *sock, tju_sock_addr target_addr) {
 
 int send_packet(tju_packet_t *packet_to_send) {
   char *msg = packet_to_buf(packet_to_send);
+  DEBUG_PRINT("Sending Packet: ack:%d, seq:%d\n", packet_to_send->header.ack_num, packet_to_send->header.seq_num);
   sendToLayer3(msg, packet_to_send->header.plen);
   free(msg);
   return 0;
@@ -304,11 +307,15 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
       break;
     case ESTABLISHED:
       if (flag == NO_FLAG) {
+        if (seq < sock->window.wnd_recv->expect_seq) {
+          //重复的数据
+          tju_packet_t *ack_pkt = create_packet(dst_port, src_port, 0, sock->window.wnd_recv->expect_seq,
+                                                DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, ACK_FLAG_MASK, 1, 0, NULL, 0);
+          auto_retransmit(sock, ack_pkt, FALSE);
+          free_packet(ack_pkt);
+          break;
+        }
         DEBUG_PRINT("PKT received with seq: %d, dlen: %d\n", seq, data_len);
-        tju_packet_t *ack_pkt = create_packet(dst_port, src_port, 0, seq + data_len + 1,
-                                              DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, ACK_FLAG_MASK, 1, 0, NULL, 0);
-        auto_retransmit(sock, ack_pkt, FALSE);
-        free_packet(ack_pkt);
         if (data_len > 0) {
           //hashmap_set(sock->window.wnd_recv->received_map, buf_to_packet(pkt));
           list_push(sock->window.wnd_recv->buffer_list, seq, buf_to_packet(pkt));
@@ -347,6 +354,10 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
 */
             }
           }
+          tju_packet_t *ack_pkt = create_packet(dst_port, src_port, 0, sock->window.wnd_recv->expect_seq,
+                                                DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, ACK_FLAG_MASK, 1, 0, NULL, 0);
+          auto_retransmit(sock, ack_pkt, FALSE);
+          free_packet(ack_pkt);
         }
       } else if (flag == ACK_FLAG_MASK) {
         DEBUG_PRINT("new ACK RECEIVED\n");

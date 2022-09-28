@@ -12,7 +12,7 @@ extern pthread_mutex_t print_lock;
 //debug print macro with function name
 #define DEBUG_PRINT(...) \
     do {                 \
-        if(0){           \
+        if(1){           \
         pthread_mutex_lock(&print_lock);                \
         fprintf(stderr, "DEBUG MESSAGE: %s:%d:%s(): ", __FILE__, \
                 __LINE__, __func__); \
