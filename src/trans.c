@@ -2,6 +2,7 @@
 // Created by Eric Zhao on 8/9/2022.
 //
 
+#include <math.h>
 #include "trans.h"
 #include "util.h"
 #include "timer_list.h"
@@ -9,6 +10,7 @@
 #include "tju_tcp.h"
 
 uint32_t ack_id_hash[100000000];
+uint64_t id_recv_time[100000];
 
 pthread_cond_t packet_available = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t cond_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -18,14 +20,22 @@ time_list *timer_list = NULL;
 void init_retransmit_timer() {
   timer_list = time_list_init();
   memset(ack_id_hash, 0, sizeof(ack_id_hash));
+  memset(id_recv_time, 0, sizeof(id_recv_time));
   start_work_thread(timer_list);
   DEBUG_PRINT("retransmit thread initialized\n");
 }
 
 void re_calculate_rtt(double rtt, tju_tcp_t *tju_tcp) {
   double srtt = tju_tcp->window.wnd_send->estmated_rtt;
-  tju_tcp->window.wnd_send->estmated_rtt = (RTT_ALPHA * srtt) + (1 - RTT_ALPHA) * rtt;
-  tju_tcp->window.wnd_send->rto = min(RTT_UBOUND, max(RTT_LBOUND, RTT_BETA * srtt));
+  tju_tcp->window.wnd_send->estmated_rtt = (RTT_ALPHA * rtt) + (1 - RTT_ALPHA) * srtt;
+  tju_tcp->window.wnd_send->dev_rtt = (1 - RTT_BETA) * tju_tcp->window.wnd_send->dev_rtt + RTT_BETA *
+      fabs(tju_tcp->window.wnd_send->estmated_rtt - rtt);
+  tju_tcp->window.wnd_send->rto =
+      min(RTT_UBOUND, tju_tcp->window.wnd_send->estmated_rtt + 4 * tju_tcp->window.wnd_send->dev_rtt);
+  log_rtt_event(rtt,
+                tju_tcp->window.wnd_send->estmated_rtt,
+                tju_tcp->window.wnd_send->dev_rtt,
+                tju_tcp->window.wnd_send->rto);
 }
 
 void *retransmit(retransmit_arg_t *args) {
@@ -66,25 +76,32 @@ uint32_t auto_retransmit(tju_tcp_t *sock, tju_packet_t *pkt, int requiring_ack) 
 }
 
 void free_retrans_arg(void *arg) {
-  timer_event *ptr = (timer_event *) arg;
-  struct timespec now;
-  clock_gettime(CLOCK_REALTIME, &now);
-  uint64_t current_time = TO_NANO(now);
+  time_node *node = (time_node *) arg;
+  timer_event *ptr = &node->event;
+  uint64_t current_time = id_recv_time[node->id];
   uint64_t create_time = TO_NANO((*ptr->create_time));
   re_calculate_rtt((current_time - create_time) / 1000000000.0, ((retransmit_arg_t *) ptr->args)->sock);
   free(((retransmit_arg_t *) ptr->args)->pkt);
 }
 
-void on_ack_received(uint32_t ack, tju_tcp_t *sock) {
+void on_ack_received(uint32_t ack, tju_tcp_t *sock, uint16_t rwnd) {
 
   // TODO: an ack should remove all the packets with seq_num+length < ack
   DEBUG_PRINT("ack received: %d\n", ack);
+  sock->window.wnd_send->rwnd = rwnd;
+  log_rwnd_event(rwnd);
+  sock->window.wnd_send->window_size = umin(rwnd, INIT_SEND_WINDOW);
+  log_swnd_event(sock->window.wnd_send->window_size);
   if (ack_id_hash[ack] != 0) {
     uint32_t tmp = sock->window.wnd_send->base;
     while (ack_id_hash[++tmp] == 0);
     if (tmp == ack) {
       sock->window.wnd_send->base = ack;
     }
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    uint64_t current_time = TO_NANO(now);
+    id_recv_time[ack_id_hash[ack]] = current_time;
     cancel_timer(timer_list, ack_id_hash[ack], 1, free_retrans_arg);
     ack_id_hash[ack] = 0;
   }

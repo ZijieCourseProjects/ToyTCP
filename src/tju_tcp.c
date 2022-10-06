@@ -55,8 +55,9 @@ tju_tcp_t *tju_socket() {
 
   sock->window.wnd_send->rto = INIT_RTT;
   sock->window.wnd_send->estmated_rtt = INIT_RTT;
+  sock->window.wnd_send->dev_rtt = INIT_RTT / 2;
 
-  sock->window.wnd_send->window_size = 10000;
+  sock->window.wnd_send->window_size = INIT_SEND_WINDOW;
 
 /*
   sock->window.wnd_recv->received_map =
@@ -138,8 +139,17 @@ int tju_connect(tju_tcp_t *sock, tju_sock_addr target_addr) {
   sock->window.wnd_send->base = INIT_CLIENT_SEQ;
 
   tju_packet_t
-      *pkt = create_packet(sock->established_local_addr.port, target_addr.port, sock->window.wnd_send->nextseq, 0,
-                           DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, SYN_FLAG_MASK, 1, 0, NULL, 0);
+      *pkt = create_packet(sock->established_local_addr.port,
+                           target_addr.port,
+                           sock->window.wnd_send->nextseq,
+                           0,
+                           DEFAULT_HEADER_LEN,
+                           DEFAULT_HEADER_LEN,
+                           SYN_FLAG_MASK,
+                           get_list_remain_size(sock->window.wnd_recv->buffer_list),
+                           0,
+                           NULL,
+                           0);
 
   auto_retransmit(sock, pkt, FALSE);
 
@@ -167,6 +177,7 @@ int tju_connect(tju_tcp_t *sock, tju_sock_addr target_addr) {
 int send_packet(tju_packet_t *packet_to_send) {
   char *msg = packet_to_buf(packet_to_send);
   sendToLayer3(msg, packet_to_send->header.plen);
+  log_send_event(packet_to_send->header.seq_num, packet_to_send->header.ack_num, packet_to_send->header.flags);
   free(msg);
   return 0;
 }
@@ -177,10 +188,17 @@ int tju_send(tju_tcp_t *sock, const void *buffer, int len) {
   int count = len / MAX_DLEN;
   for (int i = 0; i <= count; ++i) {
     int send_len = (i == count) ? len % MAX_DLEN : MAX_DLEN;
-    tju_packet_t *pkt = create_packet(sock->established_local_addr.port, sock->established_remote_addr.port,
-                                      sock->window.wnd_send->nextseq, 0,
-                                      DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN + send_len, NO_FLAG, 1, 0,
-                                      (char *) buffer + i * MAX_DLEN, send_len);
+    tju_packet_t *pkt = create_packet(sock->established_local_addr.port,
+                                      sock->established_remote_addr.port,
+                                      sock->window.wnd_send->nextseq,
+                                      0,
+                                      DEFAULT_HEADER_LEN,
+                                      DEFAULT_HEADER_LEN + send_len,
+                                      NO_FLAG,
+                                      get_list_remain_size(sock->window.wnd_recv->buffer_list),
+                                      0,
+                                      (char *) buffer + i * MAX_DLEN,
+                                      send_len);
     enqueue(sock->sending_queue, pkt);
     sock->window.wnd_send->nextseq += pkt->header.plen - DEFAULT_HEADER_LEN + 1;
   }
@@ -188,10 +206,10 @@ int tju_send(tju_tcp_t *sock, const void *buffer, int len) {
   while (size(sock->sending_queue) > 0) {
     tju_packet_t *pkt = dequeue(sock->sending_queue);
     while (sock->window.wnd_send->base + sock->window.wnd_send->window_size * MAX_DLEN
-        < sock->window.wnd_send->nextseq) {
+        < sock->window.wnd_send->sent_seq) {
     }
     auto_retransmit(sock, pkt, TRUE);
-    log_send_event(pkt->header.seq_num, pkt->header.ack_num, pkt->header.flags);
+    sock->window.wnd_send->sent_seq = pkt->header.seq_num;
   }
   pthread_mutex_unlock(&sock->send_lock);
   return 1;
@@ -238,8 +256,9 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
   uint8_t flag = get_flags(pkt);
   uint32_t seq = get_seq(pkt);
   uint32_t ack = get_ack(pkt);
+  uint16_t rwnd = get_advertised_window(pkt);
   if (flag & ACK_FLAG_MASK) {
-    on_ack_received(ack, sock);
+    on_ack_received(ack, sock, rwnd);
   }
   uint16_t src_port = get_src(pkt);
   uint16_t dst_port = get_dst(pkt);
@@ -265,7 +284,7 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
                                           DEFAULT_HEADER_LEN,
                                           DEFAULT_HEADER_LEN,
                                           SYN_FLAG_MASK | ACK_FLAG_MASK,
-                                          1,
+                                          get_list_remain_size(sock->window.wnd_recv->buffer_list),
                                           0,
                                           NULL,
                                           0);
@@ -282,11 +301,21 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
         sock->state = ESTABLISHED;
 
         //SEND ACK
-        tju_packet_t *pkt = create_packet(dst_port, src_port, sock->window.wnd_send->nextseq, seq + 1,
-                                          DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, ACK_FLAG_MASK, 1, 0, NULL, 0);
+        tju_packet_t *pkt = create_packet(dst_port,
+                                          src_port,
+                                          sock->window.wnd_send->nextseq,
+                                          seq + 1,
+                                          DEFAULT_HEADER_LEN,
+                                          DEFAULT_HEADER_LEN,
+                                          ACK_FLAG_MASK,
+                                          get_list_remain_size(sock->window.wnd_recv->buffer_list),
+                                          0,
+                                          NULL,
+                                          0);
         auto_retransmit(sock, pkt, FALSE);
         DEBUG_PRINT("ACK SENT\n");
         sock->window.wnd_recv->expect_seq = seq + 1;
+        sock->window.wnd_send->sent_seq = sock->window.wnd_send->base;
         DEBUG_PRINT("expect_seq:%d\n", sock->window.wnd_recv->expect_seq);
       }
       break;
@@ -299,6 +328,7 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
         new_conn->established_remote_addr.port = src_port;
         new_conn->established_remote_addr.ip = inet_network("172.17.0.2");
         new_conn->state = ESTABLISHED;
+        new_conn->window.wnd_send->sent_seq = new_conn->window.wnd_send->base;
         connected_queue[connected_queue_pointer++] = new_conn;
       }
       break;
@@ -306,7 +336,8 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
       if (flag == NO_FLAG) {
         DEBUG_PRINT("PKT received with seq: %d, dlen: %d\n", seq, data_len);
         tju_packet_t *ack_pkt = create_packet(dst_port, src_port, 0, seq + data_len + 1,
-                                              DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, ACK_FLAG_MASK, 1, 0, NULL, 0);
+                                              DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, ACK_FLAG_MASK,
+                                              get_list_remain_size(sock->window.wnd_recv->buffer_list), 0, NULL, 0);
         auto_retransmit(sock, ack_pkt, FALSE);
         free_packet(ack_pkt);
         if (data_len > 0) {
@@ -320,6 +351,7 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
               sock->received_buf = realloc(sock->received_buf, sock->received_len + data_len);
             }
             memcpy(sock->received_buf + sock->received_len, pkt + DEFAULT_HEADER_LEN, data_len);
+            log_delv_event(seq, data_len);
             sock->received_len += data_len;
             sock->window.wnd_recv->expect_seq += data_len + 1;
             DEBUG_PRINT("expect_seq:%d\n", sock->window.wnd_recv->expect_seq);
@@ -334,6 +366,7 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
               uint32_t next_data_len = tmp->header.plen - DEFAULT_HEADER_LEN;
               sock->received_buf = realloc(sock->received_buf, sock->received_len + next_data_len);
               memcpy(sock->received_buf + sock->received_len, tmp->data, next_data_len);
+              log_delv_event(tmp->header.seq_num, next_data_len);
               sock->received_len += next_data_len;
               free(tmp->data);
               //hashmap_delete(sock->window.wnd_recv->received_map, tmp);

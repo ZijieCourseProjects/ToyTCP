@@ -17,7 +17,9 @@ struct list {
   struct node *head;
   struct node *tail;
   int size;
+  int max_size;
 };
+uint16_t get_list_remain_size(struct list *list);
 
 void *list_pop(struct list *list, uint32_t seq);
 void list_push(struct list *list, uint32_t seq, void *pkt);

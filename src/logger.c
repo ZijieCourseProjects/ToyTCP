@@ -17,7 +17,7 @@ void init_logger() {
   //hostname
   char hostname[256];
   gethostname(hostname, 256);
-  strcat(hostname, ".log");
+  strcat(hostname, ".event.trace");
   remove(hostname);
   log_file = fopen(hostname, "w");
 }
@@ -33,9 +33,16 @@ void log_send_event(uint32_t seq, uint32_t ack, uint32_t flag) {
   char msg[32];
   memset(msg, 0, sizeof(msg));
   if (flag & SYN_FLAG_MASK) strcat(msg, "SYN");
-  if (flag & FIN_FLAG_MASK) strcat(msg, "|FIN");
-  if (flag & ACK_FLAG_MASK) strcat(msg, "|ACK");
-  fprintf(log_file, "[SEND] [%ld] [sqe:%d ack:%d flag:%s]\n", getCurrentTime(), seq, ack, msg);
+  if (flag & FIN_FLAG_MASK) {
+    if (strlen(msg) > 0) strcat(msg, "|");
+    strcat(msg, "FIN");
+  }
+  if (flag & ACK_FLAG_MASK) {
+    if (strlen(msg) > 0) strcat(msg, "|");
+    strcat(msg, "ACK");
+  }
+
+  fprintf(log_file, "[%ld] [SEND] [seq:%d ack:%d flag:%s]\n", getCurrentTime(), seq, ack, msg);
   pthread_mutex_unlock(&log_mutex);
 }
 void log_recv_event(uint32_t seq, uint32_t ack, uint32_t flag) {
@@ -43,25 +50,47 @@ void log_recv_event(uint32_t seq, uint32_t ack, uint32_t flag) {
   char msg[32];
   memset(msg, 0, sizeof(msg));
   if (flag & SYN_FLAG_MASK) strcat(msg, "SYN");
-  if (flag & FIN_FLAG_MASK) strcat(msg, "|FIN");
-  if (flag & ACK_FLAG_MASK) strcat(msg, "|ACK");
-  fprintf(log_file, "[RECV] [%ld] [sqe:%d ack:%d flag:%s]\n", getCurrentTime(), seq, ack, msg);
+  if (flag & FIN_FLAG_MASK) {
+    if (strlen(msg) > 0) strcat(msg, "|");
+    strcat(msg, "FIN");
+  }
+  if (flag & ACK_FLAG_MASK) {
+    if (strlen(msg) > 0) strcat(msg, "|");
+    strcat(msg, "ACK");
+  }
+  fprintf(log_file, "[%ld] [RECV] [seq:%d ack:%d flag:%s]\n", getCurrentTime(), seq, ack, msg);
   pthread_mutex_unlock(&log_mutex);
 }
 
 void log_cwnd_event(int type, int size) {
   pthread_mutex_lock(&log_mutex);
-  fprintf(log_file, "[CWND] [%ld] [type:%d size:%d]\n", getCurrentTime(), type, size);
+  fprintf(log_file, "[%ld] [CWND] [type:%d size:%d]\n", getCurrentTime(), type, size);
   pthread_mutex_unlock(&log_mutex);
 }
-void log_rwnd_event(int size) {
+void log_rwnd_event(uint16_t size) {
   pthread_mutex_lock(&log_mutex);
-  fprintf(log_file, "[RWND] [%ld] [size:%d]\n", getCurrentTime(), size);
+  fprintf(log_file, "[%ld] [RWND] [size:%d]\n", getCurrentTime(), size);
   pthread_mutex_unlock(&log_mutex);
 }
-void log_swnd_event(int size) {
+
+void log_rtt_event(double sample_rtt, double estimated_rtt, double dev_rtt, double timeout) {
   pthread_mutex_lock(&log_mutex);
-  fprintf(log_file, "[SWND] [%ld] [size:%d]\n", getCurrentTime(), size);
+  fprintf(log_file,
+          "[%ld] [RTTS] SampleRTT:%f EstimatedRTT:%f DeviationRTT:%f TimeoutInterval:%f\n",
+          getCurrentTime(),
+          sample_rtt * 1000, estimated_rtt * 1000, dev_rtt * 1000, timeout * 1000);
+  pthread_mutex_unlock(&log_mutex);
+}
+
+void log_swnd_event(uint32_t size) {
+  pthread_mutex_lock(&log_mutex);
+  fprintf(log_file, "[%ld] [SWND] [size:%u]\n", getCurrentTime(), size);
+  pthread_mutex_unlock(&log_mutex);
+}
+void log_delv_event(uint32_t seq, uint32_t size) {
+  pthread_mutex_lock(&log_mutex);
+  fprintf(log_file, "[%ld] [DELV] [seq:%u size:%u]\n", getCurrentTime(), seq, size);
+  fflush(log_file);
   pthread_mutex_unlock(&log_mutex);
 }
 

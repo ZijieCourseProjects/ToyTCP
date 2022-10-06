@@ -36,8 +36,11 @@
 #define RTT_ALPHA 0.125
 #define RTT_BETA 0.25
 #define INIT_RTT 0.05
-#define RTT_UBOUND 60
+#define RTT_UBOUND 1
 #define RTT_LBOUND 0.05
+
+#define RECV_LIST_MAX_SIZE 10000000
+#define INIT_SEND_WINDOW 10000000
 
 // 一些Flag
 #define NO_FLAG 0
@@ -78,8 +81,11 @@ typedef struct {
   uint32_t seq;
   uint32_t base;
   uint32_t nextseq;
+  uint32_t sent_seq;
   double estmated_rtt;
   double rto;
+  double dev_rtt;
+  uint32_t rwnd;
 //   int ack_cnt;
 //   pthread_mutex_t ack_cnt_lock;
 //   struct timeval send_time;

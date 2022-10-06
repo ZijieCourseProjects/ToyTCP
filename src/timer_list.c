@@ -40,7 +40,7 @@ uint32_t set_timer(struct time_list *list, uint32_t sec, uint64_t nano_sec, void
   node->event.timeout = timeout;
   node->event.callback = callback;
   node->event.args = args;
-  node->id = list->id_pool++;
+  node->id = (list->id_pool++) % 100000;
   node->next = NULL;
   if (list->head == NULL) {
     list->head = node;
@@ -73,7 +73,7 @@ uint32_t set_timer_without_mutex(struct time_list *list,
   node->event.create_time = now;
   node->event.callback = callback;
   node->event.args = args;
-  node->id = list->id_pool++;
+  node->id = (list->id_pool++) % 100000;
   node->next = NULL;
   if (list->head == NULL) {
     list->head = node;
@@ -176,7 +176,7 @@ int cancel_timer(struct time_list *list, uint32_t id, int destroy, void (*des)(v
         list->tail = prev;
       }
       if (destroy) {
-        des(&tmp->event);
+        des(tmp);
       }
       free_node(tmp);
       list->size--;

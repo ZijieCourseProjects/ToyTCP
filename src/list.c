@@ -9,7 +9,12 @@ struct list *list_init() {
   list->head = NULL;
   list->tail = NULL;
   list->size = 0;
+  list->max_size = RECV_LIST_MAX_SIZE;
   return list;
+}
+
+uint16_t get_list_remain_size(struct list *list) {
+  return list->max_size - list->size;
 }
 
 void list_push(struct list *list, uint32_t seq, void *pkt) {
