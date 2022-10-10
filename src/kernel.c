@@ -24,23 +24,30 @@ void onTCPPocket(char *pkt) {
   }
 
   int hashval;
-  //DEBUG_PRINT("local_ip %d local_port %d remote_ip %d remote_port %d\n", local_ip, local_port, remote_ip, remote_port);
+  DEBUG_PRINT("local_ip %d local_port %d remote_ip %d remote_port %d\n", local_ip, local_port, remote_ip, remote_port);
   // 根据4个ip port 组成四元组 查找有没有已经建立连接的socket
   hashval = cal_hash(local_ip, local_port, remote_ip, remote_port);
-  //DEBUG_PRINT("RECEIVED FROM %d\n", hashval);
+  DEBUG_PRINT("RECEIVED FROM %d\n", hashval);
 
+  DEBUG_PRINT("hash for established: %d\n", hashval);
   // 首先查找已经建立连接的socket哈希表
+  retry:
   if (established_socks[hashval] != NULL) {
+    DEBUG_PRINT("established_socks[hashval] != NULL\n");
     tju_handle_packet(established_socks[hashval], pkt);
     return;
   }
 
   // 没有的话再查找监听中的socket哈希表
   hashval = cal_hash(local_ip, local_port, 0, 0); //监听的socket只有本地监听ip和端口 没有远端
+  DEBUG_PRINT("hash for listening: %d\n", hashval);
   if (listen_socks[hashval] != NULL) {
+    DEBUG_PRINT("listen_socks[hashval] != NULL\n");
     tju_handle_packet(listen_socks[hashval], pkt);
     return;
   }
+  DEBUG_PRINT("NOT FOUND\n");
+  goto retry;
 
   // 都没找到 丢掉数据包
   printf("找不到能够处理该TCP数据包的socket, 丢弃该数据包\n");

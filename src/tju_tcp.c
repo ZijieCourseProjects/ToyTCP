@@ -83,14 +83,17 @@ int tju_bind(tju_tcp_t *sock, tju_sock_addr bind_addr) {
 */
 int tju_listen(tju_tcp_t *sock) {
   sock->state = LISTEN;
-  //DEBUG_PRINT("listening local addr:%d, local port:%d\n", sock->bind_addr.ip,sock->bind_addr.port);
   int hashval = cal_hash(sock->bind_addr.ip, sock->bind_addr.port, 0, 0);
+  DEBUG_PRINT("listening local addr:%d, local port:%d, hashval: %d\n",
+              sock->bind_addr.ip,
+              sock->bind_addr.port,
+              hashval);
   listen_socks[hashval] = sock;
   return 0;
 }
 
 /*
-接受连接 
+接受连接
 返回与客户端通信用的socket
 这里返回的socket一定是已经完成3次握手建立了连接的socket
 因为只要该函数返回, 用户就可以马上使用该socket进行send和recv
@@ -151,7 +154,7 @@ int tju_connect(tju_tcp_t *sock, tju_sock_addr target_addr) {
                            NULL,
                            0);
 
-  auto_retransmit(sock, pkt, FALSE);
+  auto_retransmit(sock, pkt, TRUE);
 
   sock->window.wnd_send->nextseq++;
 
@@ -257,9 +260,6 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
   uint32_t seq = get_seq(pkt);
   uint32_t ack = get_ack(pkt);
   uint16_t rwnd = get_advertised_window(pkt);
-  if (flag & ACK_FLAG_MASK) {
-    on_ack_received(ack, sock, rwnd);
-  }
   uint16_t src_port = get_src(pkt);
   uint16_t dst_port = get_dst(pkt);
 
@@ -298,7 +298,7 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
     case SYN_SENT:
       if (flag == (SYN_FLAG_MASK | ACK_FLAG_MASK)) {
         DEBUG_PRINT("SYN_ACK RECEIVED\n");
-        sock->state = ESTABLISHED;
+        on_ack_received(ack, sock, rwnd);
 
         //SEND ACK
         tju_packet_t *pkt = create_packet(dst_port,
@@ -312,16 +312,18 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
                                           0,
                                           NULL,
                                           0);
-        auto_retransmit(sock, pkt, FALSE);
+        auto_retransmit(sock, pkt, TRUE);
         DEBUG_PRINT("ACK SENT\n");
         sock->window.wnd_recv->expect_seq = seq + 1;
         sock->window.wnd_send->sent_seq = sock->window.wnd_send->base;
         DEBUG_PRINT("expect_seq:%d\n", sock->window.wnd_recv->expect_seq);
+        sock->state = ESTABLISHED;
       }
       break;
     case SYN_RECV:
       if (flag == ACK_FLAG_MASK) {
         DEBUG_PRINT("ACK RECEIVED\n");
+        on_ack_received(ack, sock, rwnd);
         new_conn = (tju_tcp_t *) malloc(sizeof(tju_tcp_t));
         memcpy(new_conn, sock, sizeof(tju_tcp_t));
         new_conn->established_local_addr = sock->bind_addr;
@@ -382,7 +384,126 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
           }
         }
       } else if (flag == ACK_FLAG_MASK) {
+        on_ack_received(ack, sock, rwnd);
         DEBUG_PRINT("new ACK RECEIVED\n");
+      } else if (flag == (FIN_FLAG_MASK | ACK_FLAG_MASK)) {
+        on_ack_received(ack, sock, rwnd);
+        sock->state = CLOSE_WAIT;
+
+        //SEND ACK
+        tju_packet_t *pkt = create_packet(dst_port,
+                                          src_port,
+                                          ack,
+                                          seq + 1,
+                                          DEFAULT_HEADER_LEN,
+                                          DEFAULT_HEADER_LEN,
+                                          ACK_FLAG_MASK,
+                                          1,
+                                          0,
+                                          NULL,
+                                          0);
+        auto_retransmit(sock, pkt, FALSE);
+        DEBUG_PRINT("ACK SENT\n");
+        sock->window.wnd_recv->expect_seq = seq + 1;
+        DEBUG_PRINT("seq:%d,ack:%d\n", ack, seq + 1);
+        sleep(1);    //necessary?
+        tju_packet_t *ppkt = create_packet(dst_port,
+                                           src_port,
+                                           ack,
+                                           seq + 1,
+                                           DEFAULT_HEADER_LEN,
+                                           DEFAULT_HEADER_LEN,
+                                           ACK_FLAG_MASK | FIN_FLAG_MASK,
+                                           1,
+                                           0,
+                                           NULL,
+                                           0);
+        auto_retransmit(sock, ppkt, FALSE);
+        DEBUG_PRINT("FINACK SENT\n");
+        sock->window.wnd_recv->expect_seq = seq + 1;
+        DEBUG_PRINT("seq:%d,ack:%d\n", ack, seq + 1);
+        sock->state = LAST_ACK;
+      }
+      break;
+    case FIN_WAIT_1:
+      if (flag == ACK_FLAG_MASK) {
+        //sock->window.wnd_recv->expect_seq = seq + 1;
+        on_ack_received(ack, sock, rwnd);
+        sock->state = FIN_WAIT_2;
+      } else if (flag == (ACK_FLAG_MASK | FIN_FLAG_MASK)) {
+        //fflag++;
+        on_ack_received(ack, sock, rwnd);
+        sock->state = CLOSING;
+        DEBUG_PRINT("CLOSING!\n");
+        sleep(3);
+
+        //SEND ACK
+        // while(fflag!=2){
+
+        // }
+        tju_packet_t *pkt = create_packet(dst_port,
+                                          src_port,
+                                          sock->window.wnd_send->nextseq,
+                                          seq + 1,
+                                          DEFAULT_HEADER_LEN,
+                                          DEFAULT_HEADER_LEN,
+                                          ACK_FLAG_MASK,
+                                          1,
+                                          0,
+                                          NULL,
+                                          0);
+        auto_retransmit(sock, pkt, FALSE);
+        DEBUG_PRINT("ACK SENT\n");
+        DEBUG_PRINT("seq:%d,ack:%d\n", sock->window.wnd_send->nextseq, seq + 1);
+        //sock->window.wnd_send->nextseq++;
+        sock->window.wnd_recv->expect_seq = seq + 1;
+      }
+
+      break;
+    case FIN_WAIT_2:
+      if (flag == (FIN_FLAG_MASK | ACK_FLAG_MASK)) {
+        on_ack_received(ack, sock, rwnd);
+        sock->state = TIME_WAIT;
+
+        //SEND ACK
+        tju_packet_t *pkt = create_packet(dst_port,
+                                          src_port,
+                                          ack,
+                                          seq + 1,
+                                          DEFAULT_HEADER_LEN,
+                                          DEFAULT_HEADER_LEN,
+                                          ACK_FLAG_MASK,
+                                          1,
+                                          0,
+                                          NULL,
+                                          0);
+        auto_retransmit(sock, pkt, FALSE);
+        DEBUG_PRINT("ACK SENT\n");
+        DEBUG_PRINT("seq:%d,ack:%d\n", ack, seq + 1);
+        //sock->window.wnd_send->nextseq++;
+        sock->window.wnd_recv->expect_seq = seq + 1;
+        sleep(2);
+        sock->state = CLOSED;
+
+      }
+
+      break;
+    case CLOSING:
+      if (flag == ACK_FLAG_MASK) {
+        on_ack_received(ack, sock, rwnd);
+        sock->state = TIME_WAIT;
+        sleep(2);
+        sock->state = CLOSED;
+
+        //sock->window.wnd_recv->expect_seq = seq + 1;
+      }
+      break;
+    case LAST_ACK:
+      if (flag == ACK_FLAG_MASK) {
+        on_ack_received(ack, sock, rwnd);
+        sock->state = CLOSED;
+
+        //sock->window.wnd_recv->expect_seq = seq + 1;
       }
       break;
   }
@@ -410,5 +531,45 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
 }
 
 int tju_close(tju_tcp_t *sock) {
+  while (size(sock->sending_queue) > 0) {
+
+  }
+  sock->state = FIN_WAIT_1;
+  DEBUG_PRINT("FIN_WAIT_1!\n");
+  sleep(1);
+
+  tju_sock_addr local_addr;
+  local_addr = sock->established_local_addr;
+  tju_sock_addr target_addr;
+  target_addr = sock->established_remote_addr;
+
+  tju_packet_t
+      *pkt = create_packet(sock->established_local_addr.port,
+                           target_addr.port,
+                           sock->window.wnd_send->nextseq,
+                           sock->window.wnd_recv->expect_seq,
+                           DEFAULT_HEADER_LEN,
+                           DEFAULT_HEADER_LEN,
+                           FIN_FLAG_MASK | ACK_FLAG_MASK,
+                           1,
+                           0,
+                           NULL,
+                           0);
+
+  auto_retransmit(sock, pkt, FALSE);
+  DEBUG_PRINT("sent FINACK!\n");
+  DEBUG_PRINT("seq:%d,ack:%d\n", sock->window.wnd_send->nextseq, sock->window.wnd_recv->expect_seq);
+  sock->window.wnd_send->nextseq++;
+
+  while (sock->state != CLOSED) {
+
+  }
+  int hashval = cal_hash(local_addr.ip, local_addr.port, target_addr.ip, target_addr.port);
+
+  established_socks[hashval] = NULL;
+  freeQueue(sock->sending_queue);
+  sock = NULL;
+  DEBUG_PRINT("Closed!\n");
+
   return 0;
 }

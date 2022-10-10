@@ -31,11 +31,12 @@
 
 #define INIT_SERVER_SEQ 300
 #define INIT_CLIENT_SEQ 100
+#define SERVER_IP "172.17.0.3"
 
 //RTT CALCULATION
 #define RTT_ALPHA 0.125
 #define RTT_BETA 0.25
-#define INIT_RTT 0.05
+#define INIT_RTT 3
 #define RTT_UBOUND 1
 #define RTT_LBOUND 0.05
 

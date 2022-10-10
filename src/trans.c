@@ -19,9 +19,9 @@ time_list *timer_list = NULL;
 
 void init_retransmit_timer() {
   timer_list = time_list_init();
+  start_work_thread(timer_list);
   memset(ack_id_hash, 0, sizeof(ack_id_hash));
   memset(id_recv_time, 0, sizeof(id_recv_time));
-  start_work_thread(timer_list);
   DEBUG_PRINT("retransmit thread initialized\n");
 }
 
