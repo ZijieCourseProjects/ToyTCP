@@ -1,9 +1,12 @@
 //
 // Created by Eric Zhao on 9/9/2022.
 //
+#include <tgmath.h>
 #include "time.h"
 #include "../inc/timer_list.h"
 #include "stdlib.h"
+#include "../inc/tju_packet.h"
+#include "../inc/util.h"
 
 #define TO_TIMESPEC(nano) (struct timespec){.tv_sec = (time_t)(nano / 1000000000), .tv_nsec = (long)(nano % 1000000000)}
 void free_node(struct time_node *tmp);
@@ -40,7 +43,7 @@ uint32_t set_timer(struct time_list *list, uint32_t sec, uint64_t nano_sec, void
   node->event.timeout = timeout;
   node->event.callback = callback;
   node->event.args = args;
-  node->id = (list->id_pool++) % 100000;
+  node->id = (list->id_pool++) % 100000 + 1;
   node->next = NULL;
   if (list->head == NULL) {
     list->head = node;
@@ -73,7 +76,7 @@ uint32_t set_timer_without_mutex(struct time_list *list,
   node->event.create_time = now;
   node->event.callback = callback;
   node->event.args = args;
-  node->id = (list->id_pool++) % 100000;
+  node->id = (list->id_pool++) % 100000 + 1;
   node->next = NULL;
   if (list->head == NULL) {
     list->head = node;
@@ -86,6 +89,30 @@ uint32_t set_timer_without_mutex(struct time_list *list,
 //  DEBUG_PRINT("set timer %d, timeout at %u\n", node->id, node->event.timeout);
   return node->id;
 }
+extern uint64_t id_recv_time[100000];
+
+void re_calculate_rtt(double rtt, tju_tcp_t *tju_tcp) {
+  double srtt = tju_tcp->window.wnd_send->estmated_rtt;
+  tju_tcp->window.wnd_send->estmated_rtt = (RTT_ALPHA * rtt) + (1 - RTT_ALPHA) * srtt;
+  tju_tcp->window.wnd_send->dev_rtt = (1 - RTT_BETA) * tju_tcp->window.wnd_send->dev_rtt + RTT_BETA *
+      fabs(tju_tcp->window.wnd_send->estmated_rtt - rtt);
+  tju_tcp->window.wnd_send->rto =
+      min(RTT_UBOUND, tju_tcp->window.wnd_send->estmated_rtt + 4 * tju_tcp->window.wnd_send->dev_rtt);
+  log_rtt_event(rtt,
+                tju_tcp->window.wnd_send->estmated_rtt,
+                tju_tcp->window.wnd_send->dev_rtt,
+                tju_tcp->window.wnd_send->rto);
+}
+
+void free_retrans_arg(void *arg) {
+  time_node *node = (time_node *) arg;
+  timer_event *ptr = &node->event;
+  uint64_t current_time = id_recv_time[node->id];
+  uint64_t create_time = TO_NANO((*ptr->create_time));
+  re_calculate_rtt((current_time - create_time) / 1000000000.0, ((retransmit_arg_t *) ptr->args)->sock);
+  free(((retransmit_arg_t *) ptr->args)->pkt);
+}
+extern bitmap *ackmap;
 /*
  * check if any timer is timeout
  * invoke the callback function if timeout
@@ -106,24 +133,35 @@ void *check_timer(struct time_list *list) {
   uint64_t timeout = TO_NANO((*(list->head->event.timeout)));
   //DEBUG_PRINT("Currenttime: %lu, timeout: %lu", current_time, timeout);
   if (timeout <= current_time) {
-    DEBUG_PRINT("Currenttime: %lu, timeout: %lu\n", current_time, timeout);
-    struct time_node *tmp = list->head;
+    if (bitmap_read(ackmap, list->head->id)) {
+      DEBUG_PRINT("timer received for %d, free pkt with seq: %d\n",
+                  list->head->id,
+                  ((tju_packet_t *) ((retransmit_arg_t *) list->head->event.args)->pkt)->header.seq_num);
+      bitmap_clear(ackmap, list->head->id);
+      free_retrans_arg(list->head);
+      free_node(list->head);
+    } else {
+      DEBUG_PRINT("Currenttime: %lu, timeout: %lu\n", current_time, timeout);
+      struct time_node *tmp = list->head;
+      DEBUG_PRINT("timer %d timeout\n", tmp->id);
+      ((retransmit_arg_t *) tmp->event.args)->sock->window.wnd_send->cwnd = 1;
+      ((retransmit_arg_t *) tmp->event.args)->sock->window.wnd_send->cwnd_state = SLOW_START;
+      log_cwnd_event(4, 1);
+      //invoke the callback function
+      void *result = tmp->event.callback(tmp->event.args);
+      //TODO:Potential memory leak
+      free_node(tmp);
+
+    }
     list->head = list->head->next;
     if (list->head == NULL) {
       list->tail = NULL;
     }
-    DEBUG_PRINT("timer %d timeout\n", tmp->id);
-
-    //invoke the callback function
-    void *result = tmp->event.callback(tmp->event.args);
-
-    //TODO:Potential memory leak
-    free_node(tmp);
-
     list->size--;
+
     pthread_mutex_unlock(&list->lock);
 
-    return result;
+    return 0;
   }
   pthread_mutex_unlock(&list->lock);
 
@@ -212,4 +250,31 @@ int cancel_timer_until(struct time_list *list, int id) {
   }
   pthread_mutex_unlock(&list->lock);
   return -1;
+}
+
+void immidiate_invoke_callback(struct time_list *list, uint32_t id) {
+  pthread_mutex_lock(&list->lock);
+  struct time_node *tmp = list->head;
+  struct time_node *prev = NULL;
+  while (tmp != NULL) {
+    if (tmp->id == id) {
+      if (prev == NULL) {
+        list->head = tmp->next;
+      } else {
+        prev->next = tmp->next;
+      }
+      if (tmp == list->tail) {
+        list->tail = prev;
+      }
+      tmp->event.callback(tmp->event.args);
+      free_node(tmp);
+      list->size--;
+      DEBUG_PRINT("timer %d canceled\n", id);
+      pthread_mutex_unlock(&list->lock);
+      return;
+    }
+    prev = tmp;
+    tmp = tmp->next;
+  }
+  pthread_mutex_unlock(&list->lock);
 }

@@ -7,31 +7,18 @@ static tju_tcp_t *connected_queue[512];
 static int connected_queue_pointer = 0;
 
 pthread_mutex_t print_lock = PTHREAD_MUTEX_INITIALIZER;
+bitmap *ackmap;
 
 /*
 创建 TCP socket 
 初始化对应的结构体
 设置初始状态为 CLOSED
 */
-uint64_t packet_hash(const void *item, uint64_t seed0, uint64_t seed1) {
-  const tju_packet_t *packet = item;
-  return (uint64_t) packet->header.seq_num << 32 | packet->header.seq_num;
-}
-
-int packet_compare(const void *a, const void *b, void *udata) {
-  const tju_packet_t *pa = a;
-  const tju_packet_t *pb = b;
-  if (pa->header.seq_num < pb->header.seq_num) {
-    return -1;  // Return -1 if you want ascending, 1 if you want descending order.
-  } else if (pa->header.seq_num > pb->header.seq_num) {
-    return 1;   // Return 1 if you want ascending, -1 if you want descending order.
-  }
-  return 0;
-}
 
 tju_tcp_t *tju_socket() {
   init_retransmit_timer();
   init_logger();
+  ackmap = bitmap_allocate(1000000);
 
   tju_tcp_t *sock = (tju_tcp_t *) malloc(sizeof(tju_tcp_t));
   sock->state = CLOSED;
@@ -83,11 +70,8 @@ int tju_bind(tju_tcp_t *sock, tju_sock_addr bind_addr) {
 */
 int tju_listen(tju_tcp_t *sock) {
   sock->state = LISTEN;
+  //DEBUG_PRINT("listening local addr:%d, local port:%d\n", sock->bind_addr.ip,sock->bind_addr.port);
   int hashval = cal_hash(sock->bind_addr.ip, sock->bind_addr.port, 0, 0);
-  DEBUG_PRINT("listening local addr:%d, local port:%d, hashval: %d\n",
-              sock->bind_addr.ip,
-              sock->bind_addr.port,
-              hashval);
   listen_socks[hashval] = sock;
   return 0;
 }
@@ -166,6 +150,9 @@ int tju_connect(tju_tcp_t *sock, tju_sock_addr target_addr) {
 
   while (sock->state != ESTABLISHED) {
   }
+  sock->window.wnd_send->cwnd_state = SLOW_START;
+  sock->window.wnd_send->cwnd = 1;
+  sock->window.wnd_send->ssthresh = INIT_SEND_WINDOW;
   listen_socks[hashval] = NULL;
 
   // 将建立了连接的socket放入内核 已建立连接哈希表中
@@ -260,6 +247,9 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
   uint32_t seq = get_seq(pkt);
   uint32_t ack = get_ack(pkt);
   uint16_t rwnd = get_advertised_window(pkt);
+  if (flag & ACK_FLAG_MASK) {
+    on_ack_received(ack, sock, rwnd);
+  }
   uint16_t src_port = get_src(pkt);
   uint16_t dst_port = get_dst(pkt);
 
@@ -298,7 +288,7 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
     case SYN_SENT:
       if (flag == (SYN_FLAG_MASK | ACK_FLAG_MASK)) {
         DEBUG_PRINT("SYN_ACK RECEIVED\n");
-        on_ack_received(ack, sock, rwnd);
+        sock->state = ESTABLISHED;
 
         //SEND ACK
         tju_packet_t *pkt = create_packet(dst_port,
@@ -312,18 +302,16 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
                                           0,
                                           NULL,
                                           0);
-        auto_retransmit(sock, pkt, TRUE);
+        auto_retransmit(sock, pkt, FALSE);
         DEBUG_PRINT("ACK SENT\n");
         sock->window.wnd_recv->expect_seq = seq + 1;
         sock->window.wnd_send->sent_seq = sock->window.wnd_send->base;
         DEBUG_PRINT("expect_seq:%d\n", sock->window.wnd_recv->expect_seq);
-        sock->state = ESTABLISHED;
       }
       break;
     case SYN_RECV:
       if (flag == ACK_FLAG_MASK) {
         DEBUG_PRINT("ACK RECEIVED\n");
-        on_ack_received(ack, sock, rwnd);
         new_conn = (tju_tcp_t *) malloc(sizeof(tju_tcp_t));
         memcpy(new_conn, sock, sizeof(tju_tcp_t));
         new_conn->established_local_addr = sock->bind_addr;
@@ -332,14 +320,23 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
         new_conn->state = ESTABLISHED;
         new_conn->window.wnd_send->sent_seq = new_conn->window.wnd_send->base;
         connected_queue[connected_queue_pointer++] = new_conn;
+        sock->state = ESTABLISHED;
       }
       break;
     case ESTABLISHED:
       if (flag == NO_FLAG) {
         DEBUG_PRINT("PKT received with seq: %d, dlen: %d\n", seq, data_len);
-        tju_packet_t *ack_pkt = create_packet(dst_port, src_port, 0, seq + data_len + 1,
-                                              DEFAULT_HEADER_LEN, DEFAULT_HEADER_LEN, ACK_FLAG_MASK,
-                                              get_list_remain_size(sock->window.wnd_recv->buffer_list), 0, NULL, 0);
+        tju_packet_t *ack_pkt = create_packet(dst_port,
+                                              src_port,
+                                              0,
+                                              seq + data_len + 1,
+                                              DEFAULT_HEADER_LEN,
+                                              DEFAULT_HEADER_LEN,
+                                              ACK_FLAG_MASK,
+                                              get_list_remain_size(sock->window.wnd_recv->buffer_list),
+                                              0,
+                                              NULL,
+                                              0);
         auto_retransmit(sock, ack_pkt, FALSE);
         free_packet(ack_pkt);
         if (data_len > 0) {
@@ -384,10 +381,8 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
           }
         }
       } else if (flag == ACK_FLAG_MASK) {
-        on_ack_received(ack, sock, rwnd);
         DEBUG_PRINT("new ACK RECEIVED\n");
-      } else if (flag == (FIN_FLAG_MASK | ACK_FLAG_MASK)) {
-        on_ack_received(ack, sock, rwnd);
+      } else if (flag == FIN_FLAG_MASK | ACK_FLAG_MASK) {
         sock->state = CLOSE_WAIT;
 
         //SEND ACK
@@ -398,7 +393,7 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
                                           DEFAULT_HEADER_LEN,
                                           DEFAULT_HEADER_LEN,
                                           ACK_FLAG_MASK,
-                                          1,
+                                          get_list_remain_size(sock->window.wnd_recv->buffer_list),
                                           0,
                                           NULL,
                                           0);
@@ -414,7 +409,7 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
                                            DEFAULT_HEADER_LEN,
                                            DEFAULT_HEADER_LEN,
                                            ACK_FLAG_MASK | FIN_FLAG_MASK,
-                                           1,
+                                           get_list_remain_size(sock->window.wnd_recv->buffer_list),
                                            0,
                                            NULL,
                                            0);
@@ -428,11 +423,9 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
     case FIN_WAIT_1:
       if (flag == ACK_FLAG_MASK) {
         //sock->window.wnd_recv->expect_seq = seq + 1;
-        on_ack_received(ack, sock, rwnd);
         sock->state = FIN_WAIT_2;
       } else if (flag == (ACK_FLAG_MASK | FIN_FLAG_MASK)) {
         //fflag++;
-        on_ack_received(ack, sock, rwnd);
         sock->state = CLOSING;
         DEBUG_PRINT("CLOSING!\n");
         sleep(3);
@@ -448,7 +441,7 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
                                           DEFAULT_HEADER_LEN,
                                           DEFAULT_HEADER_LEN,
                                           ACK_FLAG_MASK,
-                                          1,
+                                          get_list_remain_size(sock->window.wnd_recv->buffer_list),
                                           0,
                                           NULL,
                                           0);
@@ -462,7 +455,6 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
       break;
     case FIN_WAIT_2:
       if (flag == (FIN_FLAG_MASK | ACK_FLAG_MASK)) {
-        on_ack_received(ack, sock, rwnd);
         sock->state = TIME_WAIT;
 
         //SEND ACK
@@ -473,7 +465,7 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
                                           DEFAULT_HEADER_LEN,
                                           DEFAULT_HEADER_LEN,
                                           ACK_FLAG_MASK,
-                                          1,
+                                          get_list_remain_size(sock->window.wnd_recv->buffer_list),
                                           0,
                                           NULL,
                                           0);
@@ -484,13 +476,11 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
         sock->window.wnd_recv->expect_seq = seq + 1;
         sleep(2);
         sock->state = CLOSED;
-
       }
 
       break;
     case CLOSING:
       if (flag == ACK_FLAG_MASK) {
-        on_ack_received(ack, sock, rwnd);
         sock->state = TIME_WAIT;
         sleep(2);
         sock->state = CLOSED;
@@ -500,7 +490,6 @@ int tju_handle_packet(tju_tcp_t *sock, char *pkt) {
       break;
     case LAST_ACK:
       if (flag == ACK_FLAG_MASK) {
-        on_ack_received(ack, sock, rwnd);
         sock->state = CLOSED;
 
         //sock->window.wnd_recv->expect_seq = seq + 1;
@@ -551,7 +540,7 @@ int tju_close(tju_tcp_t *sock) {
                            DEFAULT_HEADER_LEN,
                            DEFAULT_HEADER_LEN,
                            FIN_FLAG_MASK | ACK_FLAG_MASK,
-                           1,
+                           get_list_remain_size(sock->window.wnd_recv->buffer_list),
                            0,
                            NULL,
                            0);

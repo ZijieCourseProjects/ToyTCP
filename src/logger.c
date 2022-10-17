@@ -43,6 +43,7 @@ void log_send_event(uint32_t seq, uint32_t ack, uint32_t flag) {
   }
 
   fprintf(log_file, "[%ld] [SEND] [seq:%d ack:%d flag:%s]\n", getCurrentTime(), seq, ack, msg);
+  fflush(log_file);
   pthread_mutex_unlock(&log_mutex);
 }
 void log_recv_event(uint32_t seq, uint32_t ack, uint32_t flag) {
@@ -59,6 +60,7 @@ void log_recv_event(uint32_t seq, uint32_t ack, uint32_t flag) {
     strcat(msg, "ACK");
   }
   fprintf(log_file, "[%ld] [RECV] [seq:%d ack:%d flag:%s]\n", getCurrentTime(), seq, ack, msg);
+  fflush(log_file);
   pthread_mutex_unlock(&log_mutex);
 }
 

@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <stdint.h>
+#include "bitmap.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,7 +37,7 @@
 //RTT CALCULATION
 #define RTT_ALPHA 0.125
 #define RTT_BETA 0.25
-#define INIT_RTT 3
+#define INIT_RTT 0.5
 #define RTT_UBOUND 1
 #define RTT_LBOUND 0.05
 
@@ -87,14 +88,12 @@ typedef struct {
   double rto;
   double dev_rtt;
   uint32_t rwnd;
-//   int ack_cnt;
-//   pthread_mutex_t ack_cnt_lock;
-//   struct timeval send_time;
-//   struct timeval timeout;
-//   uint16_t rwnd; 
-//   int congestion_status;
-//   uint16_t cwnd; 
-//   uint16_t ssthresh; 
+  uint32_t cwnd;
+  uint32_t ssthresh;
+  int cwnd_state;
+  int cwnd_congestion_count;
+  int dup_ack_count;
+  int dup_ack;
 } sender_window_t;
 
 // TCP 接受窗口

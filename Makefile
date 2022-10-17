@@ -4,10 +4,11 @@ SRC_DIR = $(TOP_DIR)/src
 BUILD_DIR = $(TOP_DIR)/build
 
 CC=gcc
-FLAGS = -pthread -g -ggdb -DDEBUG -I$(INC_DIR) -Wall
+FLAGS = -pthread -g -ggdb -pg -DDEBUG -I$(INC_DIR) -Wall
 OBJS = $(BUILD_DIR)/tju_packet.o \
 	   $(BUILD_DIR)/logger.o \
 	   $(BUILD_DIR)/kernel.o \
+	   $(BUILD_DIR)/bitmap.o \
 	   $(BUILD_DIR)/trans.o \
 	   $(BUILD_DIR)/queue.o \
 	   $(BUILD_DIR)/list.o \

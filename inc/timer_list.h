@@ -42,4 +42,5 @@ uint32_t set_timer_without_mutex(struct time_list *list,
                                  void *(*callback)(void *),
                                  void *args);
 int cancel_timer(struct time_list *list, uint32_t id, int destroy, void (*des)(void *));
+void immidiate_invoke_callback(struct time_list *list, uint32_t id);
 #endif //TJU_TCP_INC_TIMER_LIST_H_
