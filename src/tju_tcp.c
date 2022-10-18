@@ -18,7 +18,7 @@ bitmap *ackmap;
 tju_tcp_t *tju_socket() {
   init_retransmit_timer();
   init_logger();
-  ackmap = bitmap_allocate(1000000);
+  ackmap = bitmap_allocate(100000000);
 
   tju_tcp_t *sock = (tju_tcp_t *) malloc(sizeof(tju_tcp_t));
   sock->state = CLOSED;

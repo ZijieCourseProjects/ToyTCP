@@ -74,6 +74,11 @@ uint32_t auto_retransmit(tju_tcp_t *sock, tju_packet_t *pkt, int requiring_ack) 
 
 void on_ack_received(uint32_t ack, tju_tcp_t *sock, uint16_t rwnd) {
 
+  struct timespec now;
+  clock_gettime(CLOCK_REALTIME, &now);
+  uint64_t current_time = TO_NANO(now);
+  id_recv_time[get_ack_id_hash(ack)] = current_time;
+
   switch (sock->window.wnd_send->cwnd_state) {
     case SLOW_START:
       if (sock->window.wnd_send->cwnd < sock->window.wnd_send->ssthresh) {
@@ -118,21 +123,21 @@ void on_ack_received(uint32_t ack, tju_tcp_t *sock, uint16_t rwnd) {
   log_rwnd_event(rwnd);
   sock->window.wnd_send->window_size = umin(rwnd, sock->window.wnd_send->cwnd);
   log_swnd_event(sock->window.wnd_send->window_size);
-  if (get_ack_id_hash(ack) != 0) {
+  bitmap_set(ackmap, get_ack_id_hash(ack));
+  for (uint32_t tmp = sock->window.wnd_send->sent_seq; tmp > sock->window.wnd_send->base; tmp--) {
+    if (get_ack_id_hash(tmp) != 0) {
+      sock->window.wnd_send->base = tmp;
+    }
+  }
+  set_ack_id_hash(ack, 0);
+/*
     uint32_t tmp = sock->window.wnd_send->base;
     while (get_ack_id_hash(++tmp) == 0);
     if (tmp == ack) {
       sock->window.wnd_send->base = ack;
       DEBUG_PRINT("base updated to %d\n", ack);
     }
-    struct timespec now;
-    clock_gettime(CLOCK_REALTIME, &now);
-    uint64_t current_time = TO_NANO(now);
-    id_recv_time[get_ack_id_hash(ack)] = current_time;
-    bitmap_set(ackmap, get_ack_id_hash(ack));
-    //cancel_timer(timer_list, get_ack_id_hash(ack), 1, free_retrans_arg);
-    set_ack_id_hash(ack, 0);
-  }
+*/
 }
 
 void *transit_work_thread(time_list *list) {
